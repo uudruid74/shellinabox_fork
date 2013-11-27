@@ -11,7 +11,7 @@ Installing necessary applications
 
 Install some applications before proceeeding.
 
-	apt-get install git dpkg-dev debhelper autotools-dev libssl-dev libpam0g-dev zlib1g-dev libssl1.0.0 libpam0g openssl lighttpd
+	apt-get install git dpkg-dev debhelper autotools-dev libpam0g-dev libpam0g lighttpd
 
 
 Installing and configuring Shell In A Box
@@ -19,7 +19,7 @@ Installing and configuring Shell In A Box
 
 Clone the current git repository of Shell In A Box.
 
-	git clone https://github.com/rsolomou/shellinabox_fork
+	git clone https://github.com/rsolomou/shellinabox_fork.git
 	cd shellinabox_fork
 
 Build the package
