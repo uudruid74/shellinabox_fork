@@ -4,7 +4,6 @@ Updating software
 Always best to update the software and firmware.
 
 	apt-get update
-	apt-get upgrade
 
 
 Installing necessary applications
