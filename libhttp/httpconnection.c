@@ -569,7 +569,9 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
   int ieBug                 = 0;
   const char *userAgent     = getFromHashMap(&http->header, "user-agent");
   const char *msie          = userAgent ? strstr(userAgent, "MSIE ") : NULL;
-  if (msie) {
+  const char *msie11        = userAgent ? strstr(userAgent, "rv:1") : NULL;
+
+  if (msie || msie11) {
     ieBug++;
   }
 

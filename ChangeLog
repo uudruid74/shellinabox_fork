@@ -1,3 +1,30 @@
+2014-11-15 Evan Langlois 	<uudruid74@gmail.com>
+	* Found a newer nyancat, which assumes a 256 color palette.  Since
+	there were existing issues with byobu/tmux statusbar not displaying
+	its background, I added a color down-converter so that the escape 
+	sequences could be supported.  Real 256 color support would require 
+	a major rewrite and it would be fairly unnecessary.
+
+2014-11-14  Evan Langlois 	<uudruid74@gmail.com>
+	* Huge changes in how shellinabox does color.  Previously, it
+	used color 0 for the foreground color, but that is actually the
+	ANSI number for BLACK.  The choice to use color7 for foreground
+	was to support a number of bugfixes.  Due to a design limitation
+	in how colors are stored, 40m (black) and reset to black 0m or m
+	can no longer be different colors - otherwise I'd lose other
+	colors.  This way is close to the standard. Nyancat test passes!
+	* Monochrome is much improved.  Remember to set TERM to vt100 if
+	you use mono as the application will then know you don't have color
+	and your curses lib may compensate.
+
+2014-11-11  Evan Langlois    <uudruid74@gmail.com>
+
+    * Integrated patches submitted by various people that fix the
+    keyboard keys in Firefox, proper IE detection for IE11, and
+    bugs with iOS devices (last untested).
+    * Fixed keyboard.png so it will display on black background
+    * Updated version numbers (including dialog box that said 2.10)
+
 2010-09-11  Markus Gutschke  <markus@shellinabox.com>
 
 	* Added --pidfile= option that can be used even if running in the

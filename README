@@ -1,3 +1,13 @@
 Build the package according to the information in INSTALL, then refer to
 to the shellinaboxd.1 manual page, or the shellinaboxd.ps PostScript file
 for detailed documentation.
+
+To build for Debian or Ubuntu:
+
+  > sudo aptitude install debhelper autotools-dev libpam0g-dev
+  > dpkg-buildpackage
+
+The .deb will be in .., e.g.:
+
+  > dpkg -i ../shellinabox_2.14-1_amd64.deb
+

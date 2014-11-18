@@ -80,6 +80,7 @@
     <style type="text/css">
       body {
         margin: 0px;
+        overflow: hidden;
       }
     </style>
     <script type="text/javascript"><!--
@@ -91,7 +92,7 @@
         // selections whenever we change the "overflow" style. So, only
         // do so for non-Netscape browsers.
         if (typeof navigator.appName == 'undefined' ||
-            navigator.appName != 'Netscape') {
+          navigator.appName != 'Netscape') {
           document.write('<style type="text/css">' +
                          '#vt100 #console div, #vt100 #alt_console div {' +
                          '  overflow: hidden;' +

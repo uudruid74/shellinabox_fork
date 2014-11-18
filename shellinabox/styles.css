@@ -1,9 +1,9 @@
-#vt100 a { 
+#vt100 a {
   text-decoration:      none;
   color:                inherit;
 }
 
-#vt100 a:hover { 
+#vt100 a:hover {
   text-decoration:      underline;
 }
 
@@ -12,7 +12,7 @@
   z-index:              2;
 }
 
-#vt100 #reconnect input { 
+#vt100 #reconnect input {
   padding:              1ex;
   font-weight:          bold;
   font-size:            x-large;
@@ -29,7 +29,7 @@
   z-index:              2;
 }
 
-#vt100 pre { 
+#vt100 pre {
   margin:               0px;
 }
 
@@ -39,16 +39,16 @@
 
 #vt100 #scrollable {
   overflow-x:           hidden;
-  overflow-y:           scroll;
+  overflow-y:           auto;
   position:             relative;
   padding:              1px;
 }
 
 #vt100 #console, #vt100 #alt_console, #vt100 #cursor, #vt100 #lineheight, #vt100 .hidden pre { 
-  font-family:          "DejaVu Sans Mono", "Everson Mono", FreeMono, "Andale Mono", "Lucida Console", monospace;
+  font-family:          "DejaVu Sans Mono", "Everson Mono", FreeMono, "Andale Mono", monospace;
 }
 
-#vt100 #lineheight { 
+#vt100 #lineheight {
   position:             absolute;
   visibility:           hidden;
 }
@@ -61,8 +61,8 @@
   z-index:              1;
 }
 
-#vt100 #cursor.bright { 
-  background-color:     #33BFF7;
+#vt100 #cursor.bright {
+  background-color:     black;
   color:                white;
 }
 
@@ -71,11 +71,11 @@
 }
 
 #vt100 #cursor.inactive {
-  border:               1px solid #e60000;
+  border:               1px solid;
   margin:               -1px;
 }
 
-#vt100 #padding { 
+#vt100 #padding {
   visibility:           hidden;
   width:                1px;
   height:               0px;
@@ -90,7 +90,7 @@
   height:               0px;
 }
 
-#vt100 #menu { 
+#vt100 #menu {
   overflow:             visible;
   position:             absolute;
   z-index:              3;
@@ -103,14 +103,14 @@
   position:             absolute;
 }
 
-#vt100 #menu .popup ul { 
+#vt100 #menu .popup ul {
   list-style-type:      none;
   padding:              0px;
   margin:               0px;
   min-width:            10em;
 }
 
-#vt100 #menu .popup li { 
+#vt100 #menu .popup li {
   padding:              3px 0.5ex 3px 0.5ex;
 }
 
@@ -123,20 +123,19 @@
   color:                #AAAAAA;
 }
 
-#vt100 #menu .popup hr { 
+#vt100 #menu .popup hr {
   margin:               0.5ex 0px 0.5ex 0px;
 }
 
-#vt100 #menu img { 
+#vt100 #menu img {
   margin-right:         0.5ex;
   width:                1ex;
   height:               1ex;
 }
 
-#vt100 #scrollable.inverted { color:            #ffffff;
-                              background-color: #000000; }
+#vt100 #scrollable.inverted { }
 
-#vt100 #kbd_button { 
+#vt100 #kbd_button {
   float:                left;
   position:             fixed;
   z-index:              0;
@@ -198,7 +197,7 @@
   visibility:           hidden;
 }
 
-#vt100 #keyboard .shifted { 
+#vt100 #keyboard .shifted {
   display:              none;
 }
 
@@ -217,39 +216,40 @@
  * color.css style sheets cannot work, if we define colors in styles.css.
  */
 [else DEFINES_COLORS]
-#vt100 .ansi0               { color:            #2b2b2b; }
-#vt100 .ansi1               { color:            #705050; }
-#vt100 .ansi2               { color:            #60b48a; }
-#vt100 .ansi3               { color:            #dfaf8f; }
-#vt100 .ansi4               { color:            #506070; }
-#vt100 .ansi5               { color:            #dc8cc3; }
-#vt100 .ansi6               { color:            #8cd0d3; }
-#vt100 .ansi7               { color:            #c1edff; }
-#vt100 .ansi8               { color:            #414141; }
-#vt100 .ansi9               { color:            #d70000; }
-#vt100 .ansi10              { color:            #afd7af; }
-#vt100 .ansi11              { color:            #d7af00; }
-#vt100 .ansi12              { color:            #00afff; }
-#vt100 .ansi13              { color:            #afafd7; }
-#vt100 .ansi14              { color:            #00d7d7; }
-#vt100 .ansi15              { color:            #cecece; }
+#vt100 .ansi0               { color:			#222222; }
+#vt100 .ansi1               { color:            #a02020; }
+#vt100 .ansi2               { color:            #209020; }
+#vt100 .ansi3               { color:            #A09020; }
+#vt100 .ansi4               { color:            #2020c0; }
+#vt100 .ansi5               { color:            #802080; }
+#vt100 .ansi6               { color:            #208080; }
+#vt100 .ansi7               { }
+#vt100 .ansi8               { color:            #444444; }
+#vt100 .ansi9               { color:            #cc2222; }
+#vt100 .ansi10              { color:            #22cc22; }
+#vt100 .ansi11              { color:            #cccc22; }
+#vt100 .ansi12              { color:            #2222cc; }
+#vt100 .ansi13              { color:            #cc22cc; }
+#vt100 .ansi14              { color:            #22cccc; }
+#vt100 .ansi15              { color:            #ffffff; }
 
-#vt100 .bgAnsi0             { background-color: #2b2b2b; }
-#vt100 .bgAnsi1             { background-color: #705050; }
-#vt100 .bgAnsi2             { background-color: #60b48a; }
-#vt100 .bgAnsi3             { background-color: #dfaf8f; }
-#vt100 .bgAnsi4             { background-color: #506070; }
-#vt100 .bgAnsi5             { background-color: #dc8cc3; }
-#vt100 .bgAnsi6             { background-color: #8cd0d3; }
-#vt100 .bgAnsi7             { background-color: #c1edff; }
-#vt100 .bgAnsi8             { background-color: #7f7f7f; }
-#vt100 .bgAnsi9             { background-color: #ff0000; }
-#vt100 .bgAnsi10            { background-color: #00ff00; }
-#vt100 .bgAnsi11            { background-color: #e8e800; }
-#vt100 .bgAnsi12            { background-color: #5c5cff; }
-#vt100 .bgAnsi13            { background-color: #ff00ff; }
-#vt100 .bgAnsi14            { background-color: #00ffff; }
-#vt100 .bgAnsi15            {                            }
+#vt100 .bgAnsi0             { background-color: #333333; }
+#vt100 .bgAnsi1             { background-color: #900000; }
+#vt100 .bgAnsi2             { background-color: #007000; }
+#vt100 .bgAnsi3             { background-color: #806020; }
+#vt100 .bgAnsi4             { background-color: #000080; }
+#vt100 .bgAnsi5             { background-color: #700070; }
+#vt100 .bgAnsi6             { background-color: #007070; }
+#vt100 .bgAnsi7             { background-color: #888888; }
+#vt100 .bgAnsi8             { background-color: #333333; }
+#vt100 .bgAnsi9             { background-color: #ee0000; }
+#vt100 .bgAnsi10            { background-color: #00ee00; }
+#vt100 .bgAnsi11            { background-color: #eeee00; }
+#vt100 .bgAnsi12            { background-color: #0000ee; }
+#vt100 .bgAnsi13            { background-color: #ee00ee; }
+#vt100 .bgAnsi14            { background-color: #00eeee; }
+#vt100 .bgAnsi15            { }
+
 [endif DEFINES_COLORS]
 
 @media print {
@@ -265,7 +265,7 @@
     overflow:           hidden;
   }
 
-  #vt100 #console, #vt100 #alt_console { 
+  #vt100 #console, #vt100 #alt_console {
     overflow:           hidden;
     width:              1000000ex;
   }

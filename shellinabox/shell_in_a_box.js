@@ -172,7 +172,8 @@ ShellInABox.prototype.sendRequest = function(request) {
                                (this.session ? '&session=' +
                                 encodeURIComponent(this.session) : '&rooturl='+
                                 encodeURIComponent(this.rooturl));
-  request.setRequestHeader('Content-Length', content.length);
+  // request.setRequestHeader('Content-Length', content.length);
+  // above line supposedly invalid https://code.google.com/p/shellinabox/issues/detail?id=245
 
   request.onreadystatechange = function(shellInABox) {
     return function() {
@@ -230,7 +231,9 @@ ShellInABox.prototype.sendKeys = function(keys) {
                                  '&height=' + this.terminalHeight +
                                  '&session=' +encodeURIComponent(this.session)+
                                  '&keys=' + encodeURIComponent(keys);
-    request.setRequestHeader('Content-Length', content.length);
+    // request.setRequestHeader('Content-Length', content.length);
+    // again https://code.google.com/p/shellinabox/issues/detail?id=245
+
     request.onreadystatechange = function(shellInABox) {
       return function() {
                try {
@@ -358,7 +361,7 @@ ShellInABox.prototype.extendContextMenu = function(entries, actions) {
 };
 
 ShellInABox.prototype.about = function() {
-  alert("Shell In A Box version " + "2.10 (revision 239)" +
+  alert("Shell In A Box version " + "2.15 (revision 240)" +
         "\nCopyright 2008-2010 by Markus Gutschke\n" +
         "For more information check http://shellinabox.com" +
         (typeof serverSupportsSSL != 'undefined' && serverSupportsSSL ?

@@ -84,7 +84,7 @@
 // #define ESss2          18
 // #define ESss3          19
 
-// #define ATTR_DEFAULT   0x00F0
+// #define ATTR_DEFAULT   0x0007
 // #define ATTR_REVERSE   0x0100
 // #define ATTR_UNDERLINE 0x0200
 // #define ATTR_DIM       0x0400
@@ -175,7 +175,7 @@ function VT100(container) {
   }
   this.getUserSettings();
   this.initializeElements(container);
-  this.maxScrollbackLines = 500;
+  this.maxScrollbackLines = 2000;
   this.npar               = 0;
   this.par                = [ ];
   this.isQuestionMark     = false;
@@ -213,9 +213,9 @@ VT100.prototype.reset = function(clearHistory) {
   this.utfEnabled                                    = this.utfPreferred;
   this.utfCount                                      = 0;
   this.utfChar                                       = 0;
-  this.color                                         = 'ansi0 bgAnsi15';
+  this.color                                         = 'ansi7 bgAnsi0';
   this.style                                         = '';
-  this.attr                                          = 0x00F0 /* ATTR_DEFAULT */;
+  this.attr                                          = 0x0007 /* ATTR_DEFAULT */;
   this.useGMap                                       = 0;
   this.GMap                                          = [ this.Latin1Map,
                                                          this.VT100GraphicsMap,
@@ -355,7 +355,7 @@ VT100.prototype.initializeUserCSSStyles = function() {
         var label                        = userCSSList[i][0];
         var newGroup                     = userCSSList[i][1];
         var enabled                      = userCSSList[i][2];
-
+      
         // Add user style sheet to document
         var style                        = document.createElement('link');
         var id                           = document.createAttribute('id');
@@ -373,7 +373,7 @@ VT100.prototype.initializeUserCSSStyles = function() {
         document.getElementsByTagName('head')[0].appendChild(style);
         style.disabled                   = !enabled;
       }
-
+    
       // Add entry to menu
       if (newGroup || i == userCSSList.length) {
         if (beginOfGroup != 0 && (i - beginOfGroup > 1 || !wasSingleSel)) {
@@ -580,7 +580,7 @@ VT100.prototype.addKeyBinding = function(elem, ch, key, CH, KEY) {
   this.addListener(elem, 'mousedown',
     function(vt100, elem, key) { return function(e) {
       if ((e.which || e.button) == 1) {
-        if (vt100.lastSelectedKey) {
+        if (vt100.lastSelectedKey) {       
           vt100.lastSelectedKey.className= '';
         }
         // Highlight the key while the mouse button is held down.
@@ -887,7 +887,7 @@ VT100.prototype.initializeElements = function(container) {
                        '<div class="hidden">' +
                          '<div id="usercss"></div>' +
                          '<pre><div><span id="space"></span></div></pre>' +
-                         '<input type="textfield" id="input" autocorrect="off" autocapitalize="off" />' +
+                         '<input type="textfield" id="input" autocorrect="off" autocapitalize="off"/>' +
                          '<input type="textfield" id="cliphelper" />' +
                          (typeof suppressAllAudio != 'undefined' &&
                           suppressAllAudio ? "" :
@@ -981,7 +981,7 @@ VT100.prototype.initializeElements = function(container) {
         vt100.indicateSize     = true;
       };
     }(this), 100);
-    this.addListener(window, 'resize',
+    this.addListener(window, 'resize', 
                      function(vt100) {
                        return function() {
                          vt100.hideContextMenu();
@@ -989,7 +989,7 @@ VT100.prototype.initializeElements = function(container) {
                          vt100.showCurrentSize();
                         }
                       }(this));
-
+    
     // Hide extra scrollbars attached to window
     document.body.style.margin = '0px';
     try { document.body.style.overflow ='hidden'; } catch (e) { }
@@ -1131,7 +1131,7 @@ VT100.prototype.repairElements = function(console) {
         for (var span = line.firstChild; span; span = span.nextSibling) {
           var newSpan             = document.createElement(span.tagName);
           newSpan.style.cssText   = span.style.cssText;
-          newSpan.className	  = span.className;
+          newSpan.className       = span.className;
           this.setTextContent(newSpan, this.getTextContent(span));
           newLine.appendChild(newSpan);
         }
@@ -1182,8 +1182,12 @@ VT100.prototype.resizer = function() {
   // still get confused if somebody enters a character that is wider/narrower
   // than normal. This can happen if the browser tries to substitute a
   // characters from a different font.
-  this.cursor.style.width      = this.cursorWidth  + 'px';
-  this.cursor.style.height     = this.cursorHeight + 'px';
+  if (this.cursorWidth > 0) {
+    this.cursor.style.width      = this.cursorWidth  + 'px';
+  }
+  if (this.cursorHeight > 0) {
+    this.cursor.style.height     = this.cursorHeight + 'px';
+  }
 
   // Adjust height for one pixel padding of the #vt100 element.
   // The latter is necessary to properly display the inactive cursor.
@@ -1192,10 +1196,12 @@ VT100.prototype.resizer = function() {
                                   : (window.innerHeight ||
                                      document.documentElement.clientHeight ||
                                      document.body.clientHeight))-1;
+
   // Prevent ever growing consoles on iPad.
   if (navigator.userAgent.match(/iPad/i) != null) {
     height -= 1;
   }
+
   var partial                  = height % this.cursorHeight;
   this.scrollable.style.height = (height > 0 ? height : 0) + 'px';
   this.padding.style.height    = (partial > 0 ? partial : 0) + 'px';
@@ -1533,20 +1539,20 @@ VT100.prototype.insertBlankLine = function(y, color, style) {
   // not add any missing lines in between. It is the caller's responsibility
   // to do so.
   if (!color) {
-    color                = 'ansi0 bgAnsi15';
+    color                = 'ansi7 bgAnsi0';
   }
   if (!style) {
     style                = '';
   }
   var line;
-  if (color != 'ansi0 bgAnsi15' && !style) {
+  if (color != 'ansi7 bgAnsi0' && !style) {
     line                 = document.createElement('pre');
     this.setTextContent(line, '\n');
   } else {
     line                 = document.createElement('div');
     var span             = document.createElement('span');
     span.style.cssText   = style;
-    span.className	 = color;
+    span.className 		 = color;
     this.setTextContent(span, this.spaces(this.terminalWidth));
     line.appendChild(span);
   }
@@ -1560,8 +1566,19 @@ VT100.prototype.insertBlankLine = function(y, color, style) {
 };
 
 VT100.prototype.updateWidth = function() {
-  this.terminalWidth = Math.floor(this.console[this.currentScreen].offsetWidth/
-                                  this.cursorWidth*this.scale);
+  // If the cursorWidth is zero, something is wrong.  Try to get it some other way.
+  if (this.cursorWidth <= 0 ) {
+    // Checks if the this.cursor.clientWidth is zero too.
+    if (this.cursor.clientWidth <= 0) {
+      this.terminalWidth = 80;
+    } else {
+      // Updates the size.
+      this.cursorWidth = this.cursor.clientWidth;
+      this.terminalWidth = Math.floor(this.console[this.currentScreen].offsetWidth/this.cursorWidth*this.scale);
+    }
+  } else {
+    this.terminalWidth = Math.floor(this.console[this.currentScreen].offsetWidth/this.cursorWidth*this.scale);
+  }
   return this.terminalWidth;
 };
 
@@ -1618,7 +1635,7 @@ VT100.prototype.truncateLines = function(width) {
       // Prune white space from the end of the current line
       var span       = line.lastChild;
       while (span &&
-             span.className == 'ansi0 bgAnsi15' &&
+             span.className == 'ansi7 bgAnsi0' &&
              !span.style.cssText.length) {
         // Scan backwards looking for first non-space character
         var s         = this.getTextContent(span);
@@ -1652,7 +1669,7 @@ VT100.prototype.truncateLines = function(width) {
 
 VT100.prototype.putString = function(x, y, text, color, style) {
   if (!color) {
-    color                           = 'ansi0 bgAnsi15';
+    color                           = 'ansi7 bgAnsi0';
   }
   if (!style) {
     style                           = '';
@@ -1683,7 +1700,7 @@ VT100.prototype.putString = function(x, y, text, color, style) {
       this.insertBlankLine(yIdx);
     }
     line                            = console.childNodes[yIdx];
-
+    
     // If necessary, promote blank '\n' line to a <div> tag
     if (line.tagName != 'DIV') {
       var div                       = document.createElement('div');
@@ -1713,12 +1730,12 @@ VT100.prototype.putString = function(x, y, text, color, style) {
       var oldColor                  = span.className;
       var oldStyle                  = span.style.cssText;
       if (xPos + s.length < x) {
-        if (oldColor != 'ansi0 bgAnsi15' || oldStyle != '') {
+        if (oldColor != 'ansi7 bgAnsi0' || oldStyle != '') {
           span                      = document.createElement('span');
           line.appendChild(span);
-          span.className            = 'ansi0 bgAnsi15';
+          span.className            = 'ansi7 bgAnsi0';
           span.style.cssText        = '';
-          oldColor                  = 'ansi0 bgAnsi15';
+          oldColor                  = 'ansi7 bgAnsi0';
           oldStyle                  = '';
           xPos                     += s.length;
           s                         = '';
@@ -1727,7 +1744,7 @@ VT100.prototype.putString = function(x, y, text, color, style) {
           s                        += ' ';
         } while (xPos + s.length < x);
       }
-
+    
       // If styles do not match, create a new <span>
       var del                       = text.length - s.length + x - xPos;
       if (oldColor != color ||
@@ -1786,7 +1803,7 @@ VT100.prototype.putString = function(x, y, text, color, style) {
       }
       this.setTextContent(span, s);
 
-
+      
       // Delete all subsequent <span>'s that have just been overwritten
       sibling                       = span.nextSibling;
       while (del > 0 && sibling) {
@@ -1801,7 +1818,7 @@ VT100.prototype.putString = function(x, y, text, color, style) {
           break;
         }
       }
-
+      
       // Merge <span> with next sibling, if styles are identical
       if (sibling && span.className == sibling.className &&
           span.style.cssText == sibling.style.cssText) {
@@ -1882,11 +1899,11 @@ VT100.prototype.putString = function(x, y, text, color, style) {
                           this.getTextContent(span));
       line.removeChild(sibling);
     }
-
+    
     // Prune white space from the end of the current line
     span                            = line.lastChild;
     while (span &&
-           span.className == 'ansi0 bgAnsi15' &&
+           span.className == 'ansi7 bgAnsi0' &&
            !span.style.cssText.length) {
       // Scan backwards looking for first non-space character
       s                             = this.getTextContent(span);
@@ -1963,7 +1980,7 @@ VT100.prototype.enableAlternateScreen = function(state) {
     this.resizer();
     return;
   }
-
+  
   // We save the full state of the normal screen, when we switch away from it.
   // But for the alternate screen, no saving is necessary. We always reset
   // it when we switch to it.
@@ -2077,7 +2094,7 @@ VT100.prototype.clearRegion = function(x, y, w, h, color, style) {
   // child nodes.
   if (!this.numScrollbackLines &&
       w == this.terminalWidth && h == this.terminalHeight &&
-      (color == undefined || color == 'ansi0 bgAnsi15') && !style) {
+      (color == undefined || color == 'ansi7 bgAnsi0') && !style) {
     var console = this.console[this.currentScreen];
     while (console.lastChild) {
       console.removeChild(console.lastChild);
@@ -2139,7 +2156,7 @@ VT100.prototype.copyLineSegment = function(dX, dY, sX, sY, w) {
     if (className[i]) {
       color                           = className[i];
     } else {
-      color                           = 'ansi0 bgAnsi15';
+      color                           = 'ansi7 bgAnsi0';
     }
     this.putString(dX, dY - this.numScrollbackLines, text[i], color, style[i]);
     dX                               += text[i].length;
@@ -2209,7 +2226,7 @@ VT100.prototype.scrollRegion = function(x, y, w, h, incX, incY,
           while (console.childNodes.length < this.terminalHeight) {
             this.insertBlankLine(this.terminalHeight);
           }
-
+          
           // Add new lines at bottom in order to force scrolling
           for (var i = 0; i < y; i++) {
             this.insertBlankLine(console.childNodes.length, color, style);
@@ -2328,6 +2345,13 @@ VT100.prototype.copyLast = function() {
   this.copy(this.lastSelection);
 };
 
+VT100.prototype.pasteBrowserFnc = function() {
+  var clipboard     = prompt("Paste into this box:","");
+  if (clipboard != undefined) {
+     return this.keysPressed('' + clipboard);
+  }
+};
+
 VT100.prototype.pasteFnc = function() {
   var clipboard     = undefined;
   if (this.internalClipboard != undefined) {
@@ -2347,13 +2371,6 @@ VT100.prototype.pasteFnc = function() {
     };
   } else {
     return undefined;
-  }
-};
-
-VT100.prototype.pasteBrowserFnc = function() {
-  var clipboard     = prompt("Paste into this box:","");
-  if (clipboard != undefined) {
-     return this.keysPressed('' + clipboard);
   }
 };
 
@@ -2439,7 +2456,8 @@ VT100.prototype.toggleCursorBlinking = function() {
 
 VT100.prototype.about = function() {
   alert("VT100 Terminal Emulator " + "2.10 (revision 239)" +
-        "\nCopyright 2008-2010 by Markus Gutschke\n" +
+        "\nCopyright 2008-2010 by Markus Gutschke" +
+        "Color fixes, patch collection 2014 by Evan Langlois\n" +
         "For more information check http://shellinabox.com");
 };
 
@@ -2568,7 +2586,7 @@ VT100.prototype.showContextMenu = function(x, y) {
   this.menu.style.height      =  this.container.offsetHeight + 'px';
   popup.style.left            = '0px';
   popup.style.top             = '0px';
-
+  
   var margin                  = 2;
   if (x + popup.clientWidth >= this.container.offsetWidth - margin) {
     x              = this.container.offsetWidth-popup.clientWidth - margin - 1;
@@ -2656,7 +2674,7 @@ VT100.prototype.handleKey = function(event) {
   ch                                  = this.applyModifiers(ch, event);
 
   // By this point, "ch" is either defined and contains the character code, or
-  // it is undefined and "key" defines the code of a function key
+  // it is undefined and "key" defines the code of a function key 
   if (ch != undefined) {
     this.scrollable.scrollTop         = this.numScrollbackLines *
                                         this.cursorHeight + 1;
@@ -2685,8 +2703,6 @@ VT100.prototype.handleKey = function(event) {
     }
     if (ch == undefined) {
       switch (key) {
-      case 163: /* # for FF15   */ ch = this.applyModifiers(35, event); break;
-      case 173: /* - for FF15   */ ch = this.applyModifiers(45, event); break;
       case   8: /* Backspace    */ ch = '\u007f';                       break;
       case   9: /* Tab          */ ch = '\u0009';                       break;
       case  10: /* Return       */ ch = '\u000A';                       break;
@@ -2744,20 +2760,23 @@ VT100.prototype.handleKey = function(event) {
       case 123: /* F12          */ ch = '\u001B[24~';                   break;
       case 144: /* Num Lock     */                                      return;
       case 145: /* Scroll Lock  */                                      return;
+
+      case 163: /* # for FF15   */ ch = this.applyModifiers(35, event); break;
+      case 173: /* - for FF15   */ ch = this.applyModifiers(45, event); break;
+
       case 186: /* ;            */ ch = this.applyModifiers(59, event); break;
       case 187: /* =            */ ch = this.applyModifiers(61, event); break;
       case 188: /* ,            */ ch = this.applyModifiers(44, event); break;
       case 189: /* -            */ ch = this.applyModifiers(45, event); break;
       case 190: /* .            */ ch = this.applyModifiers(46, event); break;
       case 191: /* /            */ ch = this.applyModifiers(47, event); break;
-      // Conflicts with dead key " on Swiss keyboards
-      //case 192: /* `            */ ch = this.applyModifiers(96, event); break;
-      // Conflicts with dead key " on Swiss keyboards
-      //case 219: /* [            */ ch = this.applyModifiers(91, event); break;
-      case 220: /* \            */ ch = this.applyModifiers(92, event); break;
-      // Conflicts with dead key ^ and ` on Swiss keaboards
-      //                         ^ and " on French keyboards
-      //case 221: /* ]            */ ch = this.applyModifiers(93, event); break;
+
+//    Reported conflicts (192.219,221) with dead key " on Swiss keyboards.
+//    case 192: /* `            */ ch = this.applyModifiers(96, event); break;
+//	  case 219: /* [            */ ch = this.applyModifiers(91, event); break;
+
+	  case 220: /* \            */ ch = this.applyModifiers(92, event); break;
+//    case 221: /* ]            */ ch = this.applyModifiers(93, event); break;
       case 222: /* '            */ ch = this.applyModifiers(39, event); break;
       default:                                                          return;
       }
@@ -2785,8 +2804,8 @@ VT100.prototype.handleKey = function(event) {
       part2                           = ch.substr(2);
     }
     if (part1 != undefined) {
-      ch                              = part1                                 +
-                                       ((event.shiftKey             ? 1 : 0)  +
+      ch                              = part1                          +
+                                       ((event.shiftKey             ? 1 : 0) + 1  +
                                         (event.altKey|event.metaKey ? 2 : 0)  +
                                         (event.ctrlKey              ? 4 : 0)) +
                                         part2;
@@ -2861,8 +2880,6 @@ VT100.prototype.fixEvent = function(event) {
     var u                   = undefined;
     var s                   = undefined;
     switch (this.lastNormalKeyDownEvent.keyCode) {
-    case  163: /* # -> ~ FF15 */ u = 96; s =  126; break;
-    case  173: /* - -> _ FF15 */ u = 45; s =  95; break;
     case  39: /* ' -> " */ u = 39; s =  34; break;
     case  44: /* , -> < */ u = 44; s =  60; break;
     case  45: /* - -> _ */ u = 45; s =  95; break;
@@ -2890,6 +2907,9 @@ VT100.prototype.fixEvent = function(event) {
     case 109: /* - -> _ */ u = 45; s =  95; break;
     case 111: /* / -> ? */ u = 47; s =  63; break;
 
+    case 163: /* # -> ~ FF15 */ u = 96; s =  126; break;
+    case 173: /* - -> _ FF15 */ u = 45; s =  95; break;
+
     case 186: /* ; -> : */ u = 59; s =  58; break;
     case 187: /* = -> + */ u = 61; s =  43; break;
     case 188: /* , -> < */ u = 44; s =  60; break;
@@ -2899,7 +2919,7 @@ VT100.prototype.fixEvent = function(event) {
     case 192: /* ` -> ~ */ u = 96; s = 126; break;
     case 219: /* [ -> { */ u = 91; s = 123; break;
     case 220: /* \ -> | */ u = 92; s = 124; break;
-    case 221: /* ] -> } */ u = 93; s = 125; break;
+    case 221: /* ] -> } */ u = 93; s = 125; break; 
     case 222: /* ' -> " */ u = 39; s =  34; break;
     default:                                break;
     }
@@ -2939,6 +2959,7 @@ VT100.prototype.keyDown = function(event) {
   // French keyoard conflicts:
   // ~ 50 (dead key)
   // } 107
+
   var asciiKey                  =
     event.keyCode ==  32                         ||
     event.keyCode >=  48 && event.keyCode <=  57 ||
@@ -2954,10 +2975,12 @@ VT100.prototype.keyDown = function(event) {
     event.keyCode == 226;
   var normalKey                 =
     alphNumKey                                   ||
-    event.keyCode ==  61 ||
+//	event.keyCode ==  61 ||
+	event.keyCode >= 58 && event.keyCode <= 64 ||
     event.keyCode == 106 ||
     event.keyCode >= 109 && event.keyCode <= 111 ||
-    event.keyCode >= 186 && event.keyCode <= 191 ||
+//	event.keyCode >= 186 && event.keyCode <= 191 ||
+    event.keyCode >= 160 && event.keyCode <= 191 ||
     event.keyCode == 222 ||
     event.keyCode == 252;
   try {
@@ -3097,10 +3120,12 @@ VT100.prototype.keyUp = function(event) {
         event.keyCode >=  96 && event.keyCode <= 105;
       var normalKey               =
         alphNumKey                                   ||
-        event.keyCode ==  59 || event.keyCode ==  61 ||
+//        event.keyCode ==  59 || event.keyCode ==  61 ||
+        event.keyCode >=  58 && event.keyCode <=  64 ||
         event.keyCode == 106 || event.keyCode == 107 ||
         event.keyCode >= 109 && event.keyCode <= 111 ||
-        event.keyCode >= 186 && event.keyCode <= 192 ||
+//        event.keyCode >= 186 && event.keyCode <= 192 ||
+        event.keyCode >= 160 && event.keyCode <= 192 ||
         event.keyCode >= 219 && event.keyCode <= 223 ||
         event.keyCode == 252;
       var fake                    = [ ];
@@ -3337,7 +3362,7 @@ VT100.prototype.updateStyle = function() {
     fg         = tmp;
   }
   if ((this.attr & (0x0100 /* ATTR_REVERSE */ | 0x0400 /* ATTR_DIM */)) == 0x0400 /* ATTR_DIM */) {
-    fg         = 8; // Dark grey
+		fg &= (0xF7);	// turn off bright bit - EKL
   } else if (this.attr & 0x0800 /* ATTR_BRIGHT */) {
     fg        |= 8;
     this.style = 'font-weight: bold;';
@@ -3612,7 +3637,7 @@ VT100.prototype.sendControlToPrinter = function(ch) {
           break;
         }
         // Fall through
-      case 3 /* ESgetpars */:
+      case 3 /* ESgetpars */: 
         if (ch == 0x3B /*;*/) {
           this.npar++;
           break;
@@ -3787,10 +3812,47 @@ VT100.prototype.csiM = function(number) {
   needWrap = false;
 };
 
+VT100.prototype.colorReducer = function(color,colorsize) {
+  // colorsize should be 6 or 24 | this only does colors, no attributes
+  // if you need to subtract 40 or 16 or whatever, do it before calling
+  var r, g, b;
+  if (colorsize == 6) {
+    r = Math.floor(color / 36);
+    color -= (r * 36);
+    g = Math.floor(color / 6);
+    b = color - (g * 6);
+  } else { 
+    r = Math.round((color >> 16) / 51.0 );
+    g = Math.round(((color & 0x0000ff00) >> 8) / 51.0);
+    b = Math.round((color & 0x000000ff) / 51.0);
+  }
+  // Actual color convert - EKL
+  var median = Math.cbrt(((r+2)*(g+2)*(b+2))/3);
+  var index = ((((b - median) >= -0.62) ? ((b==0) ? 0 : 1) : 0) << 2) |
+          ((((g - median) >= -0.62) ? ((g==0) ? 0 : 1) : 0) << 1) |
+          (((r - median) >= -0.62) ? ((r==0) ? 0 : 1) : 0);
+  // Fixup brightness flags - greys first since we have 4 brightnesses
+  if ((index == 0) || (index == 7)) {
+    switch (Math.max(Math.max(r,g),b)) {
+      case 0: case 1:  index=0; break;
+      case 2: index=8; break;
+      case 3: case 4: index=7; break;
+      case 5: case 6: index=15; break;
+    }
+  // then we do the rest of the colors with a formula, slightly
+  // adjusted for orange needing to be so bright, yet is still not
+  // in the 'bright' palette (it's dim yellow).
+  } else if ((Math.pow(r+1,3) + Math.pow(g+1,3) + Math.pow(b+1,3)) >= 
+                                ((index==3) ? 300 : 216)) 
+    index |= 8;  // this is the bright color bit. BUG: no bold
+  return index;
+};
+
 VT100.prototype.csim = function() {
+  // need to detect for npar of ...
   for (var i = 0; i <= this.npar; i++) {
     switch (this.par[i]) {
-    case 0:  this.attr  = 0x00F0 /* ATTR_DEFAULT */;                                break;
+    case 0:  this.attr  = 0x0007 /* ATTR_DEFAULT */;                                break;
     case 1:  this.attr  = (this.attr & ~0x0400 /* ATTR_DIM */)|0x0800 /* ATTR_BRIGHT */;         break;
     case 2:  this.attr  = (this.attr & ~0x0800 /* ATTR_BRIGHT */)|0x0400 /* ATTR_DIM */;         break;
     case 4:  this.attr |= 0x0200 /* ATTR_UNDERLINE */;                              break;
@@ -3816,17 +3878,68 @@ VT100.prototype.csim = function() {
     case 24: this.attr &= ~ 0x0200 /* ATTR_UNDERLINE */;                            break;
     case 25: this.attr &= ~ 0x1000 /* ATTR_BLINK */;                                break;
     case 27: this.attr &= ~ 0x0100 /* ATTR_REVERSE */;                              break;
-    case 38: this.attr  = (this.attr & ~(0x0400 /* ATTR_DIM */|0x0800 /* ATTR_BRIGHT */|0x0F))|
-                          0x0200 /* ATTR_UNDERLINE */;                              break;
-    case 39: this.attr &= ~(0x0400 /* ATTR_DIM */|0x0800 /* ATTR_BRIGHT */|0x0200 /* ATTR_UNDERLINE */|0x0F); break;
-    case 49: this.attr |= 0xF0;                                        break;
+    case 38: 
+      if (i < this.npar) {
+        i++;
+        if (this.par[i] == 2) {
+          fg = this.colorReducer((this.par[i+1]<<16)|(this.par[i+2]<<8)|(this.par[i+3]), 24);
+          i += 4;  // is this legal?  - EKL
+        } else if (this.par[i] == 5) {
+          fg = this.par[++i];		// color
+          if (fg >= 0xe8) { 		// for 16 grey-shade area
+            if (fg <= 0xeb) {
+              fg = 0;
+            } else if (fg <= 0xf2) {
+              fg = 8;
+            } else if (fg <= 0xf9) {
+              fg = 7;
+            } else fg = 15;
+          } else if (fg >= 16) { 	// full 6x6x6 area
+            fg = this.colorReducer(fg-16, 6);
+          }
+        }
+		this.attr = ((this.attr & ~0x0F) | fg);
+      }
+      break;
+    case 48: 
+      if (i < this.npar) {
+        i++;
+        if (this.par[i] == 2) {
+          bg = this.colorReducer((this.par[i+1]<<16)|(this.par[i+2]<<8)|(this.par[i+3]), 24);
+          i += 4;  // is this legal?  - EKL
+        } else if (this.par[i] == 5) {
+          bg = this.par[++i]; 		// color
+          if (bg >= 0xe8) {
+            if (bg <= 0xeb) { 		// 16 greys
+              bg = 0;
+            } else if (bg <= 0xf2) {
+              bg = 8;
+            } else if (bg <= 0xf9) {
+              bg = 7;
+            } else bg = 15;
+          } else if (bg >= 16) { 	// 6x6x6 cube
+            bg = this.colorReducer(bg-16, 6);
+          }
+        }
+        this.attr = ((this.attr & ~0xF0) | (bg << 4));
+      }
+      break;
+    case 39: this.attr = (this.attr &= ~(0x0400 /* ATTR_DIM */|0x0800 /* ATTR_BRIGHT */|0x0200 /* ATTR_UNDERLINE */)) | 0x07; break;
+    case 40:
+    case 49: this.attr = (this.attr & ~0xF0);                          break; // reset bg
     default:
       if (this.par[i] >= 30 && this.par[i] <= 37) {
           var fg        = this.par[i] - 30;
           this.attr     = (this.attr & ~0x0F) | fg;
-      } else if (this.par[i] >= 40 && this.par[i] <= 47) {
+      } else if (this.par[i] > 40 && this.par[i] <= 47) {
           var bg        = this.par[i] - 40;
           this.attr     = (this.attr & ~0xF0) | (bg << 4);
+      } else if (this.par[i] >=90 && this.par[i] <= 97 ) { // bright fg
+    	  var fg 		= this.par[i] - 90;
+    	  this.attr 	= (this.attr & ~0x0400 /* ATTR_DIM */) | 0x0800 /* ATTR_BRIGHT */;
+      } else if (this.par[i] >= 100 && this.par[i] <= 107 ) { // bright bg
+          var bg 		= this.par[i] - 92;
+          this.attr 	= (this.attr & ~0xF0) | (bg << 4);
       }
       break;
     }
@@ -3974,7 +4087,7 @@ VT100.prototype.doControl = function(ch) {
       }
       // Fall through
     case 5 /* ESdeviceattr */:
-    case 3 /* ESgetpars */:
+    case 3 /* ESgetpars */: 
 /*;*/ if (ch == 0x3B) {
         this.npar++;
         break;
@@ -3996,7 +4109,7 @@ VT100.prototype.doControl = function(ch) {
         this.isEsc            = 0 /* ESnormal */;
         break;
       } else {
-        this.isEsc            = 4 /* ESgotpars */;
+        this.isEsc            = 4 /* ESgotpars */;  // Why not normal?
       }
       // Fall through
     case 4 /* ESgotpars */:
@@ -4249,7 +4362,7 @@ VT100.prototype.vt100 = function(s) {
        this.utfEnabled && ch >= 128 ||
        !(this.dispCtrl ? this.ctrlAlways : this.ctrlAction)[ch & 0x1F]) &&
       (ch != 0x7F || this.dispCtrl);
-
+    
     if (isNormalCharacter && this.isEsc == 0 /* ESnormal */) {
       if (ch < 256) {
         ch                = this.translate[this.toggleMeta ? (ch | 0x80) : ch];
