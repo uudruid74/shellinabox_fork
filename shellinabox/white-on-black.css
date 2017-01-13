@@ -6,21 +6,21 @@
 }
 
 #vt100 #scrollable {
-  color:            #ccc;
+  color:            #aaa;
   background-color: #000;
 }
 
 #vt100 #scrollable.inverted {
   color:            #000;
-  background-color: #aaa;
+  background-color: #888;
 }
 
 #vt100 .ansi1, #vt100 .ansi2, #vt100 .ansi3, #vt100 .ansi4, #vt100 .ansi5, #vt100 .ansi6, #vt100 .ansi7 {
-  color:            #ccc;
+  color:            #aaa;
 }
 
 #vt100 .ansi8 {
-  color:            #444;
+  color:            #222;
 }
 
 #vt100 .ansi9, #vt100 .ansi10, #vt100 .ansi11, #vt100 .ansi12, #vt100 .ansi13, #vt100 .ansi14, #vt100 .ansi15 {
