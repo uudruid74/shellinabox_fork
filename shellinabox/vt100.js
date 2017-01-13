@@ -129,7 +129,7 @@ function VT100(container) {
     '(?:(?!-)' +
         '[^.[!"#$%&\'()*+,/:;<=>?@\\^_`{|}~\u0000- \u007F-\u00A0]+[.]){2,}' +
     '(?:(?:com|net|org|edu|gov|aero|asia|biz|cat|coop|info|int|jobs|mil|mobi|'+
-    'museum|name|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|' +
+    'museum|guru|systems|name|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|' +
     'au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|' +
     'ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|' +
     'dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|' +
@@ -2978,9 +2978,9 @@ VT100.prototype.handleTouchMove = function(event) {
     if ( Math.abs( xDiff ) > Math.abs( yDiff ) ) {/*most significant*/
 		if (Math.abs( xDiff ) > this.Thresh) {
         	if ( xDiff > 0 ) {
-            	this.keysPressed("\x02n");
+            	this.keysPressed("\x02n");  // c^B N tmux next
        		} else {
-            	this.keysPressed("\x02p");
+            	this.keysPressed("\x02p");  // c^B P tmux prev
         	}
 		}                       
     } else {
