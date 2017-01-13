@@ -2978,49 +2978,9 @@ VT100.prototype.handleTouchMove = function(event) {
     if ( Math.abs( xDiff ) > Math.abs( yDiff ) ) {/*most significant*/
 		if (Math.abs( xDiff ) > this.Thresh) {
         	if ( xDiff > 0 ) {
-            	this.handleKey({
-            		altKey:false,
-            		charCode:66,
-            		ctrlKey:true,
-            		keyCode:0,
-					length:0,
-					metaKey:false,
-					shiftKey:false
-            	});
-            	this.handleKey({
-            		altKey:false,
-            		charCode:110,
-            		ctrlKey:false,
-            		keyCode:110,
-            		key:"n",
-            		code:"KeyN",
-            		keyIdentifier:"U+004E",
-					length:0,
-					metaKey:false,
-					shiftKey:false
-            	});
+            	this.keysPressed("\x02n");
        		} else {
-            	this.handleKey({
-            		altKey:false,
-            		charCode:66,
-            		ctrlKey:true,
-            		keyCode:0,
-					length:0,
-					metaKey:false,
-					shiftKey:false
-            	});
-            	this.handleKey({
-            		altKey:false,
-            		charCode:112,
-            		ctrlKey:false,
-            		keyCode:112,
-            		key:"p",
-            		code:"KeyP",
-            		keyIdentifier:"U+005A",
-					length:0,
-					metaKey:false,
-					shiftKey:false
-            	});
+            	this.keysPressed("\x02p");
         	}
 		}                       
     } else {
@@ -3034,7 +2994,7 @@ VT100.prototype.handleTouchMove = function(event) {
     }
     /* reset values */
     this.xDown = null;
-    this.yDown = null;                                             
+    this.yDown = null;                                 
   };
   
 VT100.prototype.keyDown = function(event) {
