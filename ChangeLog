@@ -1,3 +1,6 @@
+2017-1-12 Evan Langlois		<uudruid74@gmail.com>
+	* Basic tmux support - swipe to change windows
+
 2014-11-15 Evan Langlois 	<uudruid74@gmail.com>
 	* Found a newer nyancat, which assumes a 256 color palette.  Since
 	there were existing issues with byobu/tmux statusbar not displaying
