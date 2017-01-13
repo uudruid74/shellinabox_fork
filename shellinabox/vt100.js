@@ -961,6 +961,11 @@ VT100.prototype.initializeElements = function(container) {
                                           document.body, 'marginRight'));
   var x                        = this.container.offsetLeft;
   var y                        = this.container.offsetTop;
+  // For gesture handling
+  this.xDown = null;                                                        
+  this.yDown = null;                                                        
+  this.Thresh = 30;
+  
   for (var parent = this.container; parent = parent.offsetParent; ) {
     x                         += parent.offsetLeft;
     y                         += parent.offsetTop;
@@ -1046,6 +1051,21 @@ VT100.prototype.initializeElements = function(container) {
   this.addListener(this.scrollable,'mousedown',mouseEvent(this, 0 /* MOUSE_DOWN */));
   this.addListener(this.scrollable,'mouseup',  mouseEvent(this, 1 /* MOUSE_UP */));
   this.addListener(this.scrollable,'click',    mouseEvent(this, 2 /* MOUSE_CLICK */));
+
+// Stuff for swipes and tmux hack - EKL
+  this.addListener(this.scrollable, 'touchstart', 
+  					function(vt100) {
+  						return function(e) {
+  							if (!e) e = window.event;
+  							return vt100.handleTouchStart(e); } }(this));
+  this.addListener(this.scrollable, 'touchmove', 
+  					function(vt100) {
+  						return function(e) {
+  							if (!e) e = window.event;
+  							return vt100.handleTouchMove(e); } }(this));
+
+
+  // End of Swipe/Tmux
 
   // Check that browser supports drag and drop
   if ('draggable' in document.createElement('span')) {
@@ -2937,6 +2957,86 @@ VT100.prototype.fixEvent = function(event) {
   return event;
 };
 
+VT100.prototype.handleTouchStart = function(event) {
+	console.log("Touch Start");                                         
+    this.xDown = event.touches[0].clientX;                                      
+    this.yDown = event.touches[0].clientY;                                      
+  };                                                
+
+VT100.prototype.handleTouchMove = function(event) {
+	console.log("Touch Move");
+    if ( ! this.xDown || ! this.yDown ) {
+        return;
+    }
+
+    var xUp = event.touches[0].clientX;                                    
+    var yUp = event.touches[0].clientY;
+
+    var xDiff = this.xDown - xUp;
+    var yDiff = this.yDown - yUp;
+
+    if ( Math.abs( xDiff ) > Math.abs( yDiff ) ) {/*most significant*/
+		if (Math.abs( xDiff ) > this.Thresh) {
+        	if ( xDiff > 0 ) {
+            	this.handleKey({
+            		altKey:false,
+            		charCode:66,
+            		ctrlKey:true,
+            		keyCode:0,
+					length:0,
+					metaKey:false,
+					shiftKey:false
+            	});
+            	this.handleKey({
+            		altKey:false,
+            		charCode:110,
+            		ctrlKey:false,
+            		keyCode:110,
+            		key:"n",
+            		code:"KeyN",
+            		keyIdentifier:"U+004E",
+					length:0,
+					metaKey:false,
+					shiftKey:false
+            	});
+       		} else {
+            	this.handleKey({
+            		altKey:false,
+            		charCode:66,
+            		ctrlKey:true,
+            		keyCode:0,
+					length:0,
+					metaKey:false,
+					shiftKey:false
+            	});
+            	this.handleKey({
+            		altKey:false,
+            		charCode:112,
+            		ctrlKey:false,
+            		keyCode:112,
+            		key:"p",
+            		code:"KeyP",
+            		keyIdentifier:"U+005A",
+					length:0,
+					metaKey:false,
+					shiftKey:false
+            	});
+        	}
+		}                       
+    } else {
+		if (Math.abs( yDiff ) > this.Thresh) {
+        	if ( yDiff > 0 ) {
+            	/* up swipe */ 
+        	} else { 
+            	/* down swipe */
+        	}
+		}                                                                 
+    }
+    /* reset values */
+    this.xDown = null;
+    this.yDown = null;                                             
+  };
+  
 VT100.prototype.keyDown = function(event) {
   // this.vt100('D: c=' + event.charCode + ', k=' + event.keyCode +
   //            (event.shiftKey || event.ctrlKey || event.altKey ||
