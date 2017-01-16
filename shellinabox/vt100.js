@@ -964,7 +964,7 @@ VT100.prototype.initializeElements = function(container) {
   // For gesture handling
   this.xDown = null;                                                        
   this.yDown = null;                                                        
-  this.Thresh = 30;
+  this.Thresh = 15;
   
   for (var parent = this.container; parent = parent.offsetParent; ) {
     x                         += parent.offsetLeft;
@@ -3517,8 +3517,17 @@ VT100.prototype.setMode = function(state) {
       case  5: this.isInverted = state; this.refreshInvertedState(); break;
       case  6: this.offsetMode         = state;                      break;
       case  7: this.autoWrapMode       = state;                      break;
-      case 1000:
-      case  9: this.mouseReporting     = state;                      break;
+      case 1000: // FIXME:  These modes are not the same
+      			console.log("Mouse Mode 1000 req.");
+      			this.mouseReporting	= state;
+      			break;
+      case 1001: // FIXME:  Hilite mode
+      			console.log("Mouse Mode 1001/Hilite req.");
+      			this.mouseReporting	= state;
+      			break;
+      case  9: console.log("Mouse mode 9/OK");
+      			this.mouseReporting     = state;
+      			break;
       case 25: this.cursorNeedsShowing = state;
                if (state) { this.showCursor(); }
                else       { this.hideCursor(); }                     break;
