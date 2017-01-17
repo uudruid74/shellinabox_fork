@@ -1376,7 +1376,7 @@ VT100.prototype.mouseEvent = function(event, type) {
   // invalidate the selection.
   var selection    = this.selection();
   if ((type == 1 /* MOUSE_UP */ || type == 2 /* MOUSE_CLICK */) && !selection.length) {
-    this.input.focus();
+    this.input.select();
   }
 
   // Compute mouse position in characters.
