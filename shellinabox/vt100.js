@@ -2486,16 +2486,16 @@ VT100.prototype.showContextMenu = function(x, y) {
           '<li id="reset">Reset</li>' +
           '<hr />' +
           '<li id="beginconfig">' +
-             (this.utfEnabled ? '<img src="check.png" />' : '') +
+             (this.utfEnabled ? '<img src="check.png" />' : '<div class="noimg"> </div>') +
              'Unicode</li>' +
           '<li>' +
-             (this.visualBell ? '<img src="check.png" />' : '') +
+             (this.visualBell ? '<img src="check.png" />' : '<div class="noimg"> </div>') +
              'Visual Bell</li>'+
           '<li>' +
-             (this.softKeyboard ? '<img src="check.png" />' : '') +
+             (this.softKeyboard ? '<img src="check.png" />' : '<div class="noimg"> </div>') +
              'Onscreen Keyboard</li>' +
           '<li id="endconfig">' +
-             (this.blinkingCursor ? '<img src="check.png" />' : '') +
+             (this.blinkingCursor ? '<img src="check.png" />' : '<div class="noimg"> </div>') +
              'Blinking Cursor</li>'+
           (this.usercss.firstChild ?
            '<hr id="beginusercss" />' +
