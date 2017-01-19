@@ -95,6 +95,17 @@
 // #define MOUSE_UP       1
 // #define MOUSE_CLICK    2
 
+// Test via a getter in the options object to see if the passive property is accessed
+var supportsPassive = false;
+try {
+  var opts = Object.defineProperty({}, 'passive', {
+    get: function() {
+      supportsPassive = true;
+    }
+  });
+  window.addEventListener("test", null, opts);
+} catch (e) {}
+
 function VT100(container) {
   if (typeof linkifyURLs == 'undefined' || linkifyURLs <= 0) {
     this.urlRE            = null;
@@ -264,9 +275,12 @@ VT100.prototype.reset = function(clearHistory) {
 };
 
 VT100.prototype.addListener = function(elem, event, listener) {
+  var passiveflag = false;
+  if ((event == "touchstart") || (event == "touchmove"))
+	passiveflag = (supportsPassive ? { passive: true } : false );
   try {
     if (elem.addEventListener) {
-      elem.addEventListener(event, listener, false);
+      elem.addEventListener(event, listener, passiveflag);
     } else {
       elem.attachEvent('on' + event, listener);
     }
