@@ -423,7 +423,7 @@ VT100.prototype.initializeUserCSSStyles = function() {
                           sheet.disabled = false;
                         }
                         if (!sheet.disabled) {
-                          label.innerHTML= '<img src="enabled.gif" />' +
+                          label.innerHTML= '<img src="check.png" />' +
                                            label.innerHTML;
                         }
                       } else {
@@ -462,7 +462,7 @@ VT100.prototype.initializeUserCSSStyles = function() {
       // both ends), or whether this is a on/off toggle, which can be grouped
       // together with other on/off options.
       group                             +=
-        '<li>' + (enabled ? '<img src="enabled.gif" />' : '') +
+        '<li>' + (enabled ? '<img src="check.png" />' : '') +
                  label +
         '</li>';
     }
@@ -841,6 +841,7 @@ VT100.prototype.initializeElements = function(container) {
     // installed. If in doubt, we'd rather just stay silent.
     var embed                  = '';
     try {
+      console.log("Typeof audio/x-wav is " + navigator.mimeTypes["audio/x-wav"].enabledPlugin.name + " or " + navigator.mimeTypes["audio/x-wav"]);
       if (typeof navigator.mimeTypes["audio/x-wav"].enabledPlugin.name !=
           'undefined') {
         embed                  = typeof suppressAllAudio != 'undefined' &&
@@ -2485,16 +2486,16 @@ VT100.prototype.showContextMenu = function(x, y) {
           '<li id="reset">Reset</li>' +
           '<hr />' +
           '<li id="beginconfig">' +
-             (this.utfEnabled ? '<img src="enabled.gif" />' : '') +
+             (this.utfEnabled ? '<img src="check.png" />' : '') +
              'Unicode</li>' +
           '<li>' +
-             (this.visualBell ? '<img src="enabled.gif" />' : '') +
+             (this.visualBell ? '<img src="check.png" />' : '') +
              'Visual Bell</li>'+
           '<li>' +
-             (this.softKeyboard ? '<img src="enabled.gif" />' : '') +
+             (this.softKeyboard ? '<img src="check.png" />' : '') +
              'Onscreen Keyboard</li>' +
           '<li id="endconfig">' +
-             (this.blinkingCursor ? '<img src="enabled.gif" />' : '') +
+             (this.blinkingCursor ? '<img src="check.png" />' : '') +
              'Blinking Cursor</li>'+
           (this.usercss.firstChild ?
            '<hr id="beginusercss" />' +
