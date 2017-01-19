@@ -836,29 +836,6 @@ VT100.prototype.initializeElements = function(container) {
       !this.getChildById(this.container, 'space')       ||
       !this.getChildById(this.container, 'input')       ||
       !this.getChildById(this.container, 'cliphelper')) {
-    // Only enable the "embed" object, if we have a suitable plugin. Otherwise,
-    // we might get a pointless warning that a suitable plugin is not yet
-    // installed. If in doubt, we'd rather just stay silent.
-    var embed                  = '';
-    try {
-      console.log("Typeof audio/x-wav is " + navigator.mimeTypes["audio/x-wav"].enabledPlugin.name + " or " + navigator.mimeTypes["audio/x-wav"]);
-      if (typeof navigator.mimeTypes["audio/x-wav"].enabledPlugin.name !=
-          'undefined') {
-        embed                  = typeof suppressAllAudio != 'undefined' &&
-                                 suppressAllAudio ? "" :
-        '<embed classid="clsid:02BF25D5-8C17-4B23-BC80-D3488ABDDC6B" ' +
-                       'id="beep_embed" ' +
-                       'src="beep.wav" ' +
-                       'autostart="false" ' +
-                       'volume="100" ' +
-                       'enablejavascript="true" ' +
-                       'type="audio/x-wav" ' +
-                       'height="16" ' +
-                       'width="200" ' +
-                       'style="position:absolute;left:-1000px;top:-1000px" />';
-      }
-    } catch (e) {
-    }
 
     this.container.innerHTML   =
                        '<div id="reconnect" style="visibility: hidden">' +
@@ -892,7 +869,7 @@ VT100.prototype.initializeElements = function(container) {
                          '<input type="textfield" id="cliphelper" />' +
                          (typeof suppressAllAudio != 'undefined' &&
                           suppressAllAudio ? "" :
-                         embed + '<bgsound id="beep_bgsound" loop=1 />') +
+                          "<audio id=\"beep_embed\"><source src=\"beep.wav\"/></audio>") +
                           '<iframe id="layout" src="keyboard.html" />' +
                         '</div>';
   }
@@ -903,13 +880,6 @@ VT100.prototype.initializeElements = function(container) {
   } else {
     this.beeper                = this.getChildById(this.container,
                                                    'beep_embed');
-    if (!this.beeper || !this.beeper.Play) {
-      this.beeper              = this.getChildById(this.container,
-                                                   'beep_bgsound');
-      if (!this.beeper || typeof this.beeper.src == 'undefined') {
-        this.beeper            = undefined;
-      }
-    }
   }
 
   // Initialize the variables for finding the text console and the
@@ -3213,12 +3183,9 @@ VT100.prototype.beep = function() {
     this.flashScreen();
   } else {
     try {
-      this.beeper.Play();
+      this.beeper.play();
     } catch (e) {
-      try {
-        this.beeper.src = 'beep.wav';
-      } catch (e) {
-      }
+      console.log(e);
     }
   }
 };
