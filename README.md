@@ -1,9 +1,10 @@
-ATTENSION!!
+ATTENTION!!
 ===========
 
-This was originally forked from pythonanywhere/shellinabox_fork, not gilesp!
+This was originally forked from pythonanywhere/shellinabox_fork.
+Please ignore what it says up top.  I plan on rebasing this, so stay tuned!
+
 The pythonanwhere fork is officially dead and this fork now takes it's place.
-The gilesp fork has been in a coma for years, and should be considered dead.
 There is about to be a resync with our sister repo shellinabox/shellinabox,
 and I hope to be able to find a way to re-base the repo at that time so we can
 do pull requests and get things going.
@@ -12,9 +13,13 @@ do pull requests and get things going.
 MAJOR CHANGES
 =============
 
-This fork has a redesigned color system, better tmux compatibility and support
-for some basic swipe gestures in tmux.  It fixes the old iframe bug, and many
-others.
+  *  New Color System - more accurate and converts 256 colors to 16
+  *  Iframe scrolling bug fixed
+  *  No Beep Fixed - now it will beep!
+  *  Swipe a touchscreen to change windows in tmux
+  *  Nicer pop-up menu design
+  *  Many more
+
 
 
 Updating software
