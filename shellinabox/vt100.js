@@ -129,7 +129,7 @@ function VT100(container) {
     '(?:(?!-)' +
         '[^.[!"#$%&\'()*+,/:;<=>?@\\^_`{|}~\u0000- \u007F-\u00A0]+[.]){2,}' +
     '(?:(?:com|net|org|edu|gov|aero|asia|biz|cat|coop|info|int|jobs|mil|mobi|'+
-    'museum|name|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|' +
+    'museum|name|guru|systems|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|' +
     'au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|' +
     'ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|' +
     'dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|' +
@@ -157,7 +157,7 @@ function VT100(container) {
     // Hostname.
     '(?!-)[-a-zA-Z0-9]+(?:[.](?!-)[-a-zA-Z0-9]+)?[.]' +
     '(?:(?:com|net|org|edu|gov|aero|asia|biz|cat|coop|info|int|jobs|mil|mobi|'+
-    'museum|name|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|' +
+    'museum|name|guru|systems|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|' +
     'au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|' +
     'ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|' +
     'dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|' +
@@ -932,6 +932,11 @@ VT100.prototype.initializeElements = function(container) {
                                           document.body, 'marginRight'));
   var x                        = this.container.offsetLeft;
   var y                        = this.container.offsetTop;
+    // For touchscreen gestures
+    this.xDown		= null;
+    this.yDown		= null;
+    this.Thresh		= 15;
+
   for (var parent = this.container; parent = parent.offsetParent; ) {
     x                         += parent.offsetLeft;
     y                         += parent.offsetTop;
@@ -1018,6 +1023,19 @@ VT100.prototype.initializeElements = function(container) {
   this.addListener(this.scrollable,'mouseup',  mouseEvent(this, 1 /* MOUSE_UP */));
   this.addListener(this.scrollable,'click',    mouseEvent(this, 2 /* MOUSE_CLICK */));
 
+// Stuff for swipes and tmux hack - EKL
+   this.addListener(this.scrollable, 'touchstart', 
+   	function(vt100) {
+   		return function(e) {
+   			if (!e) e = window.event;
+   				return vt100.handleTouchStart(e); } }(this));
+   this.addListener(this.scrollable, 'touchmove', 
+   	function(vt100) {
+   		return function(e) {
+   			if (!e) e = window.event;
+   				return vt100.handleTouchMove(e); } }(this));
+// End of Swipe/Tmux
+ 
   // Check that browser supports drag and drop
   if ('draggable' in document.createElement('span')) {
       var dropEvent            = function (vt100) {
@@ -1327,7 +1345,7 @@ VT100.prototype.mouseEvent = function(event, type) {
   // invalidate the selection.
   var selection    = this.selection();
   if ((type == 1 /* MOUSE_UP */ || type == 2 /* MOUSE_CLICK */) && !selection.length) {
-    this.input.focus();
+    this.input.select();
   }
 
   // Compute mouse position in characters.
@@ -2907,6 +2925,46 @@ VT100.prototype.fixEvent = function(event) {
   }
   return event;
 };
+
+VT100.prototype.handleTouchStart = function(event) {
+	console.log("Touch Start");                                         
+    this.xDown = event.touches[0].clientX;                                      
+    this.yDown = event.touches[0].clientY;                                      
+  };                                                
+
+VT100.prototype.handleTouchMove = function(event) {
+	console.log("Touch Move");
+    if ( ! this.xDown || ! this.yDown ) {
+        return;
+    }
+
+    var xUp = event.touches[0].clientX;                                    
+    var yUp = event.touches[0].clientY;
+
+    var xDiff = this.xDown - xUp;
+    var yDiff = this.yDown - yUp;
+
+    if ( Math.abs( xDiff ) > Math.abs( yDiff ) ) {/*most significant*/
+	if (Math.abs( xDiff ) > this.Thresh) {
+        	if ( xDiff > 0 ) {
+            		this.keysPressed("\x02n");  // c^B N tmux next
+       		} else {
+            		this.keysPressed("\x02p");  // c^B P tmux prev
+        	}
+	}                       
+    } else {
+	if (Math.abs( yDiff ) > this.Thresh) {
+        	if ( yDiff > 0 ) {
+            		this.keysPressed("\x1b[6~"); // Page Down 
+        	} else { 
+            		this.keysPressed("\x1b[5~"); // Page Up
+        	}
+	}                                                                 
+    }
+    /* reset values */
+    this.xDown = null;
+    this.yDown = null;                                 
+  };
 
 VT100.prototype.keyDown = function(event) {
   // this.vt100('D: c=' + event.charCode + ', k=' + event.keyCode +
