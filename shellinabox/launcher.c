@@ -1486,7 +1486,7 @@ static void childProcess(struct Service *service, int width, int height,
   char **environment;
   check(environment             = malloc(2*sizeof(char *)));
   int numEnvVars                = 1;
-  check(environment[0]          = strdup("TERM=xterm"));
+  check(environment[0]          = strdup("TERM=xterm-256color"));
   if (width > 0 && height > 0) {
     numEnvVars                 += 2;
     check(environment           = realloc(environment,
