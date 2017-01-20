@@ -949,7 +949,7 @@ VT100.prototype.initializeElements = function(container) {
     // For touchscreen gestures
     this.xDown		= null;
     this.yDown		= null;
-    this.Thresh		= 15;
+    this.Thresh		= 10;
 
   for (var parent = this.container; parent = parent.offsetParent; ) {
     x                         += parent.offsetLeft;
