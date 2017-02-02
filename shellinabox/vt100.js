@@ -276,7 +276,7 @@ VT100.prototype.reset = function(clearHistory) {
 
 VT100.prototype.addListener = function(elem, event, listener) {
   var passiveflag = false;
-  if ((event == "touchstart") || (event == "touchmove"))
+  if ((event == "touchstart") || (event == "touchmove") || (event == "touchend"))
 	passiveflag = (supportsPassive ? { passive: true } : false );
   try {
     if (elem.addEventListener) {
@@ -297,7 +297,7 @@ VT100.prototype.getUserSettings = function() {
   this.visualBell           = typeof suppressAllAudio != 'undefined' &&
                               suppressAllAudio;
   this.autoprint            = true;
-  this.softKeyboard         = false;
+  this.softKeyboard         = true;
   this.blinkingCursor       = true;
   if (this.visualBell) {
     this.signature          = Math.floor(16807*this.signature + 1) %
@@ -765,6 +765,7 @@ VT100.prototype.initializeKeyboardButton = function() {
         }
       } else {
         vt100.hideSoftKeyboard();
+	console.log("initializeKeyboardButton->click");
         vt100.input.focus();
       }
       return false; }; }(this));
@@ -790,6 +791,7 @@ VT100.prototype.initializeKeyboard = function() {
   this.addListener(this.keyboard, 'click',
     function(vt100) { return function(e) {
       vt100.hideSoftKeyboard();
+      console.log("initializeKeyboard->click");
       vt100.input.focus();
       return false; }; }(this));
   this.addListener(this.keyboard, 'selectstart', this.cancelEvent);
@@ -950,7 +952,6 @@ VT100.prototype.initializeElements = function(container) {
     this.xDown		= null;
     this.yDown		= null;
     this.Thresh		= 10;
-
   for (var parent = this.container; parent = parent.offsetParent; ) {
     x                         += parent.offsetLeft;
     y                         += parent.offsetTop;
@@ -1048,6 +1049,11 @@ VT100.prototype.initializeElements = function(container) {
    		return function(e) {
    			if (!e) e = window.event;
    				return vt100.handleTouchMove(e); } }(this));
+   this.addListener(this.scrollable, 'touchend', 
+   	function(vt100) {
+   		return function(e) {
+   			if (!e) e = window.event;
+   				return vt100.handleTouchEnd(e); } }(this));
 // End of Swipe/Tmux
  
   // Check that browser supports drag and drop
@@ -1152,7 +1158,7 @@ VT100.prototype.resized = function(w, h) {
 
 VT100.prototype.resizer = function() {
   // Hide onscreen soft keyboard
-  this.hideSoftKeyboard();
+  // this.hideSoftKeyboard();
 
   // The cursor can get corrupted if the print-preview is displayed in Firefox.
   // Recreating it, will repair it.
@@ -1359,7 +1365,8 @@ VT100.prototype.mouseEvent = function(event, type) {
   // invalidate the selection.
   var selection    = this.selection();
   if ((type == 1 /* MOUSE_UP */ || type == 2 /* MOUSE_CLICK */) && !selection.length) {
-    this.input.select();
+    console.log("mouseEvent");
+    this.input.focus();
   }
 
   // Compute mouse position in characters.
@@ -1453,8 +1460,8 @@ VT100.prototype.replaceChar = function(s, ch, repl) {
 };
 
 VT100.prototype.htmlEscape = function(s) {
-  return this.replaceChar(this.replaceChar(this.replaceChar(this.replaceChar(
-                s, '&', '&amp;'), '<', '&lt;'), '"', '&quot;'), ' ', '\u00A0');
+  return this.replaceChar(this.replaceChar(this.replaceChar(
+                s, '&', '&amp;'), '<', '&lt;'), '"', '&quot;');
 };
 
 VT100.prototype.getTextContent = function(elem) {
@@ -2466,10 +2473,9 @@ VT100.prototype.about = function() {
 
 VT100.prototype.hideContextMenu = function() {
   this.menu.style.visibility = 'hidden';
-  this.menu.style.top        = '-100px';
-  this.menu.style.left       = '-100px';
   this.menu.style.width      = '0px';
   this.menu.style.height     = '0px';
+  this.menu.style.display    = 'none';
 };
 
 VT100.prototype.extendContextMenu = function(entries, actions) {
@@ -2585,8 +2591,9 @@ VT100.prototype.showContextMenu = function(x, y) {
   // Position menu next to the mouse pointer
   this.menu.style.left        = '0px';
   this.menu.style.top         = '0px';
-  this.menu.style.width       =  this.container.offsetWidth  + 'px';
-  this.menu.style.height      =  this.container.offsetHeight + 'px';
+  this.menu.style.width       = this.container.offsetWidth  + 'px';
+  this.menu.style.height      = this.container.offsetHeight + 'px';
+  this.menu.style.display     = 'block'; 
   popup.style.left            = '0px';
   popup.style.top             = '0px';
   
@@ -2941,23 +2948,60 @@ VT100.prototype.fixEvent = function(event) {
 };
 
 VT100.prototype.handleTouchStart = function(event) {
-	console.log("Touch Start");                                         
+    console.log("Touch Start");                                         
+    var text = this.getSelectedText();
+    if (text) {
+       console.log("Selected Text: " + text);
+       return true;
+    }
+    var terminal = this;
     this.xDown = event.touches[0].clientX;                                      
-    this.yDown = event.touches[0].clientY;                                      
+    this.yDown = event.touches[0].clientY;
+    if (this.touchTimer) {
+        clearTimeout(this.touchTimer);
+    }
+    this.touchTimer = setTimeout(function() {
+        console.log ("Touch Timer");
+	terminal.touchTimer = null;
+        var text = terminal.getSelectedText();
+        if (!text)
+	    terminal.showContextMenu(terminal.xDown,terminal.yDown);
+    }, 750);
+    return false; 
   };                                                
-
+VT100.prototype.handleTouchEnd = function(event) {
+    console.log("Touch End");
+    if (this.touchTimer) { 
+	clearTimeout(this.touchTimer); 
+	this.touchTimer = null; 
+    }
+    return false;
+}
+VT100.prototype.getSelectedText = function(event) {
+    var text = ""; 
+    if (typeof window.getSelection != "undefined") { 
+	text = window.getSelection().toString(); 
+    } else if (typeof document.selection != "undefined" && document.selection.type == "Text") { 
+	text = document.selection.createRange().text; 
+    } 
+    return text; 
+}
 VT100.prototype.handleTouchMove = function(event) {
-	console.log("Touch Move");
+    console.log("Touch Move");
+    var text = this.getSelectedText();
+    if (text) {
+        console.log("Text Selected = " + text);
+	return true;
+    }
     if ( ! this.xDown || ! this.yDown ) {
         return;
     }
 
     var xUp = event.touches[0].clientX;                                    
     var yUp = event.touches[0].clientY;
-
     var xDiff = this.xDown - xUp;
     var yDiff = this.yDown - yUp;
-
+    
     if ( Math.abs( xDiff ) > Math.abs( yDiff ) ) {/*most significant*/
 	if (Math.abs( xDiff ) > this.Thresh) {
         	if ( xDiff > 0 ) {
@@ -2977,7 +3021,12 @@ VT100.prototype.handleTouchMove = function(event) {
     }
     /* reset values */
     this.xDown = null;
-    this.yDown = null;                                 
+    this.yDown = null;
+    if (this.touchTimer) {
+      clearTimeout(this.touchTimer);
+      this.touchTimer = null;
+    }
+    return false;                                
   };
 
 VT100.prototype.keyDown = function(event) {
