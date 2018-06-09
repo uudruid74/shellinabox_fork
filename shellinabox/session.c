@@ -108,28 +108,29 @@ void checkGraveyard(void) {
 }
 
 void initSession(struct Session *session, const char *sessionKey,
-                 Server *server, URL *url, const char *peerName) {
+                 Server *server, const char *peerName) {
   session->sessionKey     = sessionKey;
   session->server         = server;
   check(session->peerName = strdup(peerName));
   session->connection     = NULL;
   session->http           = NULL;
-  session->url            = url;
   session->done           = 0;
   session->pty            = -1;
+  session->ptyFirstRead   = 1;
   session->width          = 0;
   session->height         = 0;
   session->buffered       = NULL;
+  session->useLogin       = 0;
   session->len            = 0;
   session->pid            = 0;
   session->cleanup        = 0;
 }
 
-struct Session *newSession(const char *sessionKey, Server *server, URL *url,
+struct Session *newSession(const char *sessionKey, Server *server,
                            const char *peerName) {
   struct Session *session;
   check(session = malloc(sizeof(struct Session)));
-  initSession(session, sessionKey, server, url, peerName);
+  initSession(session, sessionKey, server, peerName);
   return session;
 }
 
@@ -137,7 +138,6 @@ void destroySession(struct Session *session) {
   if (session) {
     free((char *)session->peerName);
     free((char *)session->sessionKey);
-    deleteURL(session->url);
     if (session->pty >= 0) {
       NOINTR(close(session->pty));
     }
@@ -205,48 +205,39 @@ char *newSessionKey(void) {
   return sessionKey;
 }
 
-struct Session *findCGISession(int *isNew, HttpConnection *http, URL *url,
-                               const char *cgiSessionKey) {
-  *isNew                 = 1;
+struct Session *findSession(const char *sessionKey, const char *cgiSessionKey,
+                            int *sessionIsNew, HttpConnection *http) {
+  *sessionIsNew          = 1;
   if (!sessions) {
     sessions             = newHashMap(destroySessionHashEntry, NULL);
   }
-  const HashMap *args    = urlGetArgs(url);
-  const char *sessionKey = getFromHashMap(args, "session");
+
   struct Session *session= NULL;
   if (cgiSessionKey &&
       (!sessionKey || strcmp(cgiSessionKey, sessionKey))) {
     // In CGI mode, we only ever allow exactly one session with a
     // pre-negotiated key.
-    deleteURL(url);
   } else {
     if (sessionKey && *sessionKey) {
       session            = (struct Session *)getFromHashMap(sessions,
                                                             sessionKey);
     }
     if (session) {
-      *isNew             = 0;
-      deleteURL(session->url);
-      session->url       = url;
+      *sessionIsNew      = 0;
     } else if (!cgiSessionKey && sessionKey && *sessionKey) {
-      *isNew             = 0;
-      debug("Failed to find session: %s", sessionKey);
-      deleteURL(url);
+      *sessionIsNew      = 0;
+      debug("[server] Failed to find session: %s", sessionKey);
     } else {
       // First contact. Create session, now.
       check(sessionKey   = cgiSessionKey ? strdup(cgiSessionKey)
                                          : newSessionKey());
-      session            = newSession(sessionKey, httpGetServer(http), url,
+      session            = newSession(sessionKey, httpGetServer(http),
                                       httpGetPeerName(http));
       addToHashMap(sessions, sessionKey, (const char *)session);
-      debug("Creating a new session: %s", sessionKey);
+      debug("[server] Creating a new session: %s", sessionKey);
     }
   }
   return session;
-}
-
-struct Session *findSession(int *isNew, HttpConnection *http, URL *url) {
-  return findCGISession(isNew, http, url, NULL);
 }
 
 void iterateOverSessions(int (*fnc)(void *, const char *, char **), void *arg){

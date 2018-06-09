@@ -115,7 +115,7 @@ struct HttpHandler {
   int (*websocketHandler)(struct HttpConnection *, void *, int,
                           const char *, int);
   void *arg, *streamingArg;
-  
+
 };
 
 struct HttpConnection *newHttpConnection(struct Server *server, int fd,
@@ -148,6 +148,7 @@ struct Server *httpGetServer(const struct HttpConnection *http);
 struct ServerConnection *httpGetServerConnection(const struct HttpConnection*);
 int         httpGetFd(const HttpConnection *http);
 const char *httpGetPeerName(const struct HttpConnection *http);
+const char *httpGetRealIP(const struct HttpConnection *http);
 const char *httpGetMethod(const struct HttpConnection *http);
 const char *httpGetProtocol(const struct HttpConnection *http);
 const char *httpGetHost(const struct HttpConnection *http);

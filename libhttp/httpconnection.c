@@ -88,7 +88,7 @@
 static int httpPromoteToSSL(struct HttpConnection *http, const char *buf,
                             int len) {
   if (http->ssl->enabled && !http->sslHndl) {
-    debug("Switching to SSL (replaying %d+%d bytes)",
+    debug("[ssl] Switching to SSL (replaying %d+%d bytes)...",
           http->partialLength, len);
     if (http->partial && len > 0) {
       check(http->partial  = realloc(http->partial,
@@ -102,6 +102,8 @@ static int httpPromoteToSSL(struct HttpConnection *http, const char *buf,
                                     http->partial ? http->partialLength : len);
     if (http->sslHndl) {
       check(!rc);
+      // Reset renegotiations count for connections promoted to SSL.
+      http->ssl->renegotiationCount = 0;
       SSL_set_app_data(http->sslHndl, http);
     }
     free(http->partial);
@@ -138,6 +140,13 @@ static ssize_t httpRead(struct HttpConnection *http, char *buf, ssize_t len) {
       break;
     }
     dcheck(!ERR_peek_error());
+
+    // Shutdown SSL connection, if client initiated renegotiation.
+    if (http->ssl->renegotiationCount > 1) {
+      debug("[ssl] Connection shutdown due to client initiated renegotiation!");
+      rc                     = 0;
+      errno                  = EINVAL;
+    }
   } else {
     rc = NOINTR(read(http->fd, buf, len));
   }
@@ -183,18 +192,13 @@ static ssize_t httpWrite(struct HttpConnection *http, const char *buf,
 
 static int httpShutdown(struct HttpConnection *http, int how) {
   if (http->sslHndl) {
-    int rc        = 0;
     if (how != SHUT_RD) {
       dcheck(!ERR_peek_error());
       for (int i = 0; i < 10; i++) {
         sslBlockSigPipe();
-        rc        = SSL_shutdown(http->sslHndl);
+        int rc    = SSL_shutdown(http->sslHndl);
         int sPipe = sslUnblockSigPipe();
-        if (rc > 0) {
-          rc      = 0;
-          break;
-        } else {
-          rc      = -1;
+        if (rc < 1) {
           // Retry a few times in order to prefer a clean bidirectional
           // shutdown. But don't bother if the other side already closed
           // the connection.
@@ -269,7 +273,7 @@ static int httpFinishCommand(struct HttpConnection *http) {
         *lengthBuf  = '\000';
         strncat(lengthBuf, "-", sizeof(lengthBuf)-1);
       }
-      info("%s - - %s \"%s %s %s\" %d %s",
+      info("[http] %s - - %s \"%s %s %s\" %d %s",
            http->peerName, timeBuf, http->method, http->path, http->version,
            http->code, lengthBuf);
     }
@@ -292,6 +296,14 @@ static char *getPeerName(int fd, int *port, int numericHosts) {
     }
     return NULL;
   }
+  char *ret;
+  if (peerAddr.sa_family == AF_UNIX) {
+    if (port) {
+      *port         = 0;
+    }
+    check(ret       = strdup("localhost"));
+    return ret;
+  }
   char host[256];
   if (numericHosts ||
       getnameinfo(&peerAddr, sockLen, host, sizeof(host), NULL, 0, NI_NOFQDN)){
@@ -302,7 +314,6 @@ static char *getPeerName(int fd, int *port, int numericHosts) {
   if (port) {
     *port           = ntohs(((struct sockaddr_in *)&peerAddr)->sin_port);
   }
-  char *ret;
   check(ret         = strdup(host));
   return ret;
 }
@@ -394,7 +405,7 @@ void initHttpConnection(struct HttpConnection *http, struct Server *server,
   http->sslHndl            = NULL;
   http->lastError          = 0;
   if (logIsInfo()) {
-    debug("Accepted connection from %s:%d",
+    debug("[http] Accepted connection from %s:%d",
           http->peerName ? http->peerName : "???", http->peerPort);
   }
 }
@@ -415,7 +426,7 @@ void destroyHttpConnection(struct HttpConnection *http) {
     }
     httpSetState(http, COMMAND);
     if (logIsInfo()) {
-      debug("Closing connection to %s:%d",
+      debug("[http] Closing connection to %s:%d",
             http->peerName ? http->peerName : "???", http->peerPort);
     }
     httpShutdown(http, http->closed ? SHUT_WR : SHUT_RDWR);
@@ -564,17 +575,6 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
   check(msg);
   check(len >= 0);
 
-  // Internet Explorer seems to have difficulties with compressed data. It
-  // also has difficulties with SSL connections that are being proxied.
-  int ieBug                 = 0;
-  const char *userAgent     = getFromHashMap(&http->header, "user-agent");
-  const char *msie          = userAgent ? strstr(userAgent, "MSIE ") : NULL;
-  const char *msie11        = userAgent ? strstr(userAgent, "rv:1") : NULL;
-
-  if (msie || msie11) {
-    ieBug++;
-  }
-
   char *header              = NULL;
   int headerLength          = 0;
   int bodyOffset            = 0;
@@ -609,15 +609,15 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
         // Found the end of the headers.
 
         // Check that we don't send any data with HEAD requests
-        int isHead          = !strcmp(http->method, "HEAD");
+        int isHead          = http->method && !strcmp(http->method, "HEAD");
         check(l == 2 || !isHead);
 
         #ifdef HAVE_ZLIB
         // Compress replies that might exceed the size of a single IP packet
-        compress            = !ieBug && !isHead &&
+        compress            = !isHead &&
                               !http->isPartialReply &&
                               len > 1400 &&
-                              httpAcceptsEncoding(http, "deflate");
+                              httpAcceptsEncoding(http, "gzip");
         #endif
         break;
       } else {
@@ -632,7 +632,7 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
       line                  = eol + 1;
     }
 
-    if (ieBug || compress) {
+    if (compress) {
       if (l >= 2 && !memcmp(line, "\r\n", 2)) {
         line               += 2;
         l                  -= 2;
@@ -641,10 +641,6 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
       bodyOffset            = headerLength;
       check(header          = malloc(headerLength));
       memcpy(header, msg, headerLength);
-    }
-    if (ieBug) {
-      removeHeader(header, &headerLength, "connection:");
-      addHeader(&header, &headerLength, "Connection: close\r\n");
     }
 
     if (compress) {
@@ -661,10 +657,11 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
                                 .avail_out = len,
                                 .next_out  = (unsigned char *)compressed
                               };
-      if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) == Z_OK) {
+      if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
+                       31, 8, Z_DEFAULT_STRATEGY) == Z_OK) {
         if (deflate(&strm, Z_FINISH) == Z_STREAM_END) {
           // Compression was successful and resulted in reduction in size
-          debug("Compressed response from %d to %d", len, len-strm.avail_out);
+          debug("[http] Compressed response from %d to %d", len, len-strm.avail_out);
           free(msg);
           msg               = compressed;
           len              -= strm.avail_out;
@@ -672,7 +669,7 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
           removeHeader(header, &headerLength, "content-length:");
           removeHeader(header, &headerLength, "content-encoding:");
           addHeader(&header, &headerLength, "Content-Length: %d\r\n", len);
-          addHeader(&header, &headerLength, "Content-Encoding: deflate\r\n");
+          addHeader(&header, &headerLength, "Content-Encoding: gzip\r\n");
         } else {
           free(compressed);
         }
@@ -760,7 +757,7 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
     if (!http->isPartialReply) {
       if (http->expecting < 0) {
         // If we do not know the length of the content, close the connection.
-        debug("Closing previously suspended connection");
+        debug("[http] Closing previously suspended connection!");
         httpCloseRead(http);
         httpSetState(http, DISCARD_PAYLOAD);
       } else if (http->expecting == 0) {
@@ -774,10 +771,6 @@ void httpTransfer(struct HttpConnection *http, char *msg, int len) {
                                   http->msgLength ? POLLIN|POLLOUT : POLLIN);
       }
     }
-  }
-
-  if (ieBug) {
-    httpCloseRead(http);
   }
 }
 
@@ -793,7 +786,7 @@ void httpTransferPartialReply(struct HttpConnection *http, char *msg, int len){
 
 static int httpHandleCommand(struct HttpConnection *http,
                              const struct Trie *handlers) {
-  debug("Handling \"%s\" \"%s\"", http->method, http->path);
+  debug("[http] Handling \"%s\" \"%s\"", http->method, http->path);
   const char *contentLength                  = getFromHashMap(&http->header,
                                                              "content-length");
   if (contentLength != NULL && *contentLength) {
@@ -908,7 +901,7 @@ static int httpHandleCommand(struct HttpConnection *http,
               protocol ? protocol : "",
               protocol ? "\r\n" : "");
             free(port);
-            debug("Switching to WebSockets");
+            debug("[http] Switching to WebSockets");
             httpTransfer(http, response, strlen(response));
             if (http->expecting < 0) {
               http->expecting                = 0;
@@ -1165,7 +1158,7 @@ static int httpParseHeaders(struct HttpConnection *http,
     }
     value[j]               = '\000';
     if (getRefFromHashMap(&http->header, http->key)) {
-      debug("Dropping duplicate header \"%s\"", http->key);
+      debug("[http] Dropping duplicate header \"%s\"", http->key);
       free(http->key);
       free(value);
       http->key            = NULL;
@@ -1428,6 +1421,7 @@ int httpHandleConnection(struct ServerConnection *connection, void *http_,
       if (bytes > 0) {
         http->headerLength          += bytes;
         if (http->headerLength > MAX_HEADER_LENGTH) {
+          debug("[http] Connection closed due to exceeded header size!");
           httpSendReply(http, 413, "Header too big", NO_MSG);
           bytes                      = 0;
           eof                        = 1;
@@ -1485,6 +1479,13 @@ int httpHandleConnection(struct ServerConnection *connection, void *http_,
           http->headerLength         = 0;
           *events                   |= POLLIN;
           continue;
+        }
+      } else {
+        if (http->ssl && http->ssl->enabled && http->ssl->force) {
+          debug("[http] Non-SSL connections not allowed!");
+          httpCloseRead(http);
+          bytes                      = 0;
+          eof                        = 1;
         }
       }
     }
@@ -1655,7 +1656,7 @@ int httpHandleConnection(struct ServerConnection *connection, void *http_,
           }
         }
       }
-  
+
       // If the callback only provided partial data, refill the outgoing
       // buffer whenever it runs low.
       if (http->isPartialReply && (!http->msg || http->msgLength <= 0)) {
@@ -1682,7 +1683,7 @@ int httpHandleConnection(struct ServerConnection *connection, void *http_,
       http->msg                      = NULL;
       http->msgLength                = 0;
     }
-  
+
     if ((!(*events || http->isSuspended) || timedOut) && http->sslHndl) {
       *events                        = 0;
       serverSetTimeout(connection, 1);
@@ -1789,11 +1790,12 @@ void httpSendReply(struct HttpConnection *http, int code,
                                 code != 200 ? "Connection: close\r\n" : "",
                                 (long)strlen(body));
   }
-  int isHead     = !strcmp(http->method, "HEAD");
+  int isHead     = http->method && !strcmp(http->method, "HEAD");
   if (!isHead) {
     response     = stringPrintf(response, "%s", body);
   }
   free(body);
+  check(response);
   httpTransfer(http, response, strlen(response));
   if (code != 200 || isHead) {
     httpCloseRead(http);
@@ -1905,6 +1907,10 @@ int httpGetFd(const HttpConnection *http) {
 
 const char *httpGetPeerName(const struct HttpConnection *http) {
   return http->peerName;
+}
+
+const char *httpGetRealIP(const struct HttpConnection *http) {
+  return getFromHashMap(&http->header, "x-real-ip");
 }
 
 const char *httpGetMethod(const struct HttpConnection *http) {

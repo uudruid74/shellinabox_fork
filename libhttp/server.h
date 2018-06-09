@@ -52,6 +52,11 @@
 #include "libhttp/http.h"
 #include "libhttp/ssl.h"
 
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX 108
+#endif
+
+
 struct Server;
 
 struct ServerConnection {
@@ -113,7 +118,7 @@ short serverConnectionSetEvents(struct Server *server,
                                 short events);
 void serverExitLoop(struct Server *server, int exitAll);
 void serverLoop(struct Server *server);
-void serverEnableSSL(struct Server *server, int flag);
+void serverSetupSSL(struct Server *server, int enable, int force);
 void serverSetCertificate(struct Server *server, const char *filename,
                           int autoGenerateMissing);
 void serverSetCertificateFd(struct Server *server, int fd);
@@ -121,5 +126,9 @@ void serverSetNumericHosts(struct Server *server, int numericHosts);
 struct Trie *serverGetHttpHandlers(struct Server *server);
 
 extern time_t currentTime;
+extern char  *unixDomainPath;
+extern int    unixDomainUser;
+extern int    unixDomainGroup;
+extern int    unixDomainChmod;
 
 #endif

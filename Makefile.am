@@ -1,6 +1,7 @@
 AM_CPPFLAGS          =
 AM_CFLAGS            = -g -std=gnu99 -Wall
 AM_LDFLAGS           = -g -lm
+ACLOCAL_AMFLAGS      = -I m4
 
 noinst_LTLIBRARIES   = libhttp.la                                             \
                        liblogging.la
@@ -11,24 +12,19 @@ noinst_HEADERS       = libhttp/http.h
 dist_doc_DATA        = AUTHORS                                                \
                        COPYING                                                \
                        GPL-2                                                  \
-                       ChangeLog                                              \
-                       INSTALL                                                \
-                       NEWS                                                   \
-                       README                                                 \
-                       TODO                                                   \
-                       shellinabox/white-on-black.css                         \
-                       shellinabox/black-on-white.css                         \
-                       shellinabox/monochrome.css                             \
-                       shellinabox/color.css
+                       NEWS
 EXTRA_DIST           = INSTALL.Debian                                         \
                        README.Fedora                                          \
+                       INSTALL                                                \
+                       README                                                 \
+                       TODO                                                   \
                        demo/beep.wav                                          \
                        demo/favicon.ico                                       \
                        demo/demo.html                                         \
                        demo/demo.js                                           \
                        demo/demo.jspp                                         \
                        demo/demo.xml                                          \
-                       demo/check.png                                       \
+                       demo/check.png                                         \
                        demo/keyboard.html                                     \
                        demo/keyboard.png                                      \
                        demo/styles.css                                        \
@@ -43,6 +39,10 @@ EXTRA_DIST           = INSTALL.Debian                                         \
                        shellinabox/shell_in_a_box.js                          \
                        shellinabox/vt100.js                                   \
                        shellinabox/cgi-mode-example.sh                        \
+                       shellinabox/white-on-black.css                         \
+                       shellinabox/black-on-white.css                         \
+                       shellinabox/monochrome.css                             \
+                       shellinabox/color.css                                  \
                        debian/README                                          \
                        debian/README.available                                \
                        debian/README.enabled                                  \
@@ -103,7 +103,7 @@ shellinaboxd_SOURCES = shellinabox/shellinaboxd.c                             \
                        shellinabox/shell_in_a_box.jspp                        \
                        shellinabox/styles.css                                 \
                        shellinabox/print-styles.css                           \
-                       shellinabox/check.png                                \
+                       shellinabox/check.png                                  \
                        shellinabox/favicon.ico                                \
                        shellinabox/keyboard.png                               \
                        shellinabox/keyboard-layout.html                       \
@@ -111,7 +111,7 @@ shellinaboxd_SOURCES = shellinabox/shellinaboxd.c                             \
                        config.h
 BUILT_SOURCES        = shellinabox/beep.h                                     \
                        shellinabox/cgi_root.h                                 \
-                       shellinabox/check.h                                  \
+                       shellinabox/check.h                                    \
                        shellinabox/favicon.h                                  \
                        shellinabox/keyboard.h                                 \
                        shellinabox/keyboard-layout.h                          \
@@ -127,6 +127,8 @@ BUILT_SOURCES        = shellinabox/beep.h                                     \
 shellinaboxd_LDADD   = liblogging.la                                          \
                        libhttp.la
 shellinaboxd_LDFLAGS = -static
+## Added this for compatibility with older versions of autoconf/automake
+docdir               = ${datadir}/doc/${PACKAGE}
 
 symbolname           =                                                        \
   sed -e 's/.*\/\([^.]*\)[.].*/\1/'                                           \
@@ -146,7 +148,7 @@ libtool: $(LIBTOOL_DEPS)
 
 ${top_srcdir}/demo/demo.js: ${top_srcdir}/demo/beep.wav                       \
                             ${top_srcdir}/demo/demo.jspp                      \
-                            ${top_srcdir}/demo/check.png                    \
+                            ${top_srcdir}/demo/check.png                      \
                             ${top_srcdir}/demo/favicon.ico                    \
                             ${top_srcdir}/demo/keyboard.html                  \
                             ${top_srcdir}/demo/keyboard.png                   \
@@ -238,24 +240,41 @@ shellinaboxd.1: ${top_srcdir}/shellinabox/shellinaboxd.man.in                 \
 	@out=`echo "$@" 2>/dev/null|sed -e 's/\.[^.]*$$/.ps/'`;               \
 	man -Tps "./$@" >"$${out}" 2>/dev/null || rm -f "$${out}"
 
-clean-local:
+clean-local: clean-demo
 	-rm -rf shellinaboxd.1                                                \
-	        shellinaboxd.ps
+	        shellinaboxd.ps                                               \
+	        shellinaboxd.pdf
 	-rm -rf debian/shellinabox                                            \
 	        debian/shellinabox*.debhelper*                                \
 	        debian/shellinabox.substvars                                  \
 	        debian/tmp
 	-rm -rf shellinabox/beep.h                                            \
 	        shellinabox/cgi_root.h      				      \
-	        shellinabox/check.h       				      \
+	        shellinabox/check.h            				      \
 	        shellinabox/favicon.h       				      \
 	        shellinabox/keyboard.h      				      \
 	        shellinabox/keyboard-layout.h				      \
 	        shellinabox/print-styles.h  				      \
 	        shellinabox/root_page.h     				      \
+	        shellinabox/shell_in_a_box.js				      \
 	        shellinabox/shell_in_a_box.h				      \
 	        shellinabox/styles.h                                          \
+	        shellinabox/vt100.js                                          \
 	        shellinabox/vt100.h
+
+clean-demo:
+	-rm demo/beep.wav						      \
+	    demo/demo.js 						      \
+	    demo/check.png                                \
+	    demo/favicon.ico 						      \
+	    demo/keyboard.png 						      \
+	    demo/print-styles.css 					      \
+	    demo/styles.css 						      \
+	    demo/usercss-0.css 						      \
+	    demo/usercss-1.css 						      \
+	    demo/usercss-2.css 						      \
+	    demo/usercss-3.css 						      \
+	    demo/vt100.js
 
 .css.h:
 	@echo od "$<" '>'"$@"
@@ -320,7 +339,7 @@ clean-local:
 	             -e t                                                     \
 	             -e d "$<"`"                                              \
 	     -e "s/^#/\/\/ #/"                                                \
-	     -e "s/VERSION/\"@VERSION@ (revision @VCS_REVISION@)\"/g"         \
+	     -e "s/VERSION/\"@VERSION@ @VCS_REVISION@\"/g"                    \
 	     "$<" >"$@"
 
 .js.h:
@@ -345,4 +364,10 @@ clean-local:
 	   echo "static const int $${sym}Size ATTR_UNUSED ="                  \
 	           "(int)sizeof($${sym}Start);";                              \
 	 } >"$@"
+
+shellinaboxd.ps: shellinaboxd.1
+	groff -man -T ps $^ >$@
+
+shellinaboxd.pdf: shellinaboxd.ps
+	ps2pdf $^ $@
 

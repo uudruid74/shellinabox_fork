@@ -59,9 +59,10 @@
 #include "shellinabox/privileges.h"
 #include "logging/logging.h"
 
+#define UNUSED_RETURN(x) do { (void)((x)+1); } while (0)
+
 int   runAsUser  = -1;
 int   runAsGroup = -1;
-
 
 #ifndef HAVE_GETRESUID
 int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid) {
@@ -103,13 +104,13 @@ static void removeGroupPrivileges(int showError) {
 
   if (runAsGroup >= 0) {
     uid_t ru, eu, su;
-    getresuid(&ru, &eu, &su);
+    check(!getresuid(&ru, &eu, &su));
 
     // Try to switch the user-provided group.
     if ((ru && runAsGroup != (int)rg) ||
         setresgid(runAsGroup, runAsGroup, runAsGroup)) {
       if (showError) {
-        fatal("Only privileged users can change their group memberships");
+        fatal("[server] Only privileged users can change their group membership!");
       } else {
         _exit(1);
       }
@@ -136,12 +137,12 @@ void lowerPrivileges(void) {
 
   // Temporarily lower user privileges. If we used to have "root" privileges,
   // we can later still regain them.
-  setresuid(-1, -1, 0);
+  UNUSED_RETURN(setresuid(-1, -1, 0));
 
   if (runAsUser >= 0) {
     // Try to switch to the user-provided user id.
     if (r && runAsUser != (int)r) {
-      fatal("Only privileged users can change their user id");
+      fatal("[server] Only privileged users can change their user id!");
     }
     check(!setresuid(runAsUser, runAsUser, -1));
   } else {
@@ -168,7 +169,7 @@ void dropPrivileges(void) {
     // Try to switch to the user-provided user id.
     if ((r && runAsUser != (int)r) ||
         setresuid(runAsUser, runAsUser, runAsUser)) {
-      fatal("Only privileged users can change their user id.");
+      fatal("[server] Only privileged users can change their user id!");
     }
   } else {
     if (r) {
@@ -267,7 +268,7 @@ uid_t getUserId(const char *name) {
   #endif
   check(buf = malloc(len));
   if (getpwnam_r(name, &pwbuf, buf, len, &pw) || !pw) {
-    fatal("Cannot look up user id \"%s\"", name);
+    fatal("[server] Cannot look up user id \"%s\"!", name);
   }
   uid_t uid = pw->pw_uid;
   free(buf);
@@ -363,8 +364,12 @@ static int getgrnam_r(const char *name, struct group *grp, char *buf,
 #endif
 
 gid_t getGroupId(const char *name) {
+  static const long gr_max = 64 * 1024;
   struct group grbuf, *gr;
+  char *temp;
   char *buf;
+  int ret;
+  int gr_baselen;
   #ifdef _SC_GETGR_R_SIZE_MAX
   int gr_len      = sysconf(_SC_GETGR_R_SIZE_MAX);
   if (gr_len <= 0) {
@@ -373,31 +378,49 @@ gid_t getGroupId(const char *name) {
   #else
   int gr_len      = 4096;
   #endif
+  gr_baselen = gr_len;
   check(buf       = malloc(gr_len));
-  if (getgrnam_r(name, &grbuf, buf, gr_len, &gr) || !gr) {
-    // Maybe, this system does not have a "nogroup" group. Substitute the
-    // group of the "nobody" user.
-    if (!strcmp(name, "nogroup")) {
-      struct passwd pwbuf, *pw;
-      #ifdef _SC_GETPW_R_SIZE_MAX
-      int pw_len  = sysconf(_SC_GETPW_R_SIZE_MAX);
-      if (pw_len <= 0) {
-        pw_len    = 4096;
-      }
-      #else
-      int pw_len  = 4096;
-      #endif
-      if (pw_len > gr_len) {
-        check(buf = realloc(buf, pw_len));
-      }
-      if (!getpwnam_r("nobody", &pwbuf, buf, pw_len, &pw) && pw) {
-        debug("Substituting \"nobody's\" primary group for \"nogroup\"");
-        gid_t gid = pw->pw_gid;
-        free(buf);
-        return gid;
+  for(;;) {
+    errno = 0;
+    ret = getgrnam_r(name, &grbuf, buf, gr_len, &gr);
+    if(!ret) {
+      if(gr) {
+        break;
+      } else if(!strcmp(name, "nogroup")) {
+        // Maybe, this system does not have a "nogroup" group. Substitute the
+        // group of the "nobody" user.
+        struct passwd pwbuf, *pw;
+        #ifdef _SC_GETPW_R_SIZE_MAX
+        int pw_len  = sysconf(_SC_GETPW_R_SIZE_MAX);
+        if (pw_len <= 0) {
+          pw_len    = 4096;
+        }
+        #else
+        int pw_len  = 4096;
+        #endif
+        if (pw_len > gr_len) {
+          check(buf = realloc(buf, pw_len));
+        }
+        if (!getpwnam_r("nobody", &pwbuf, buf, pw_len, &pw) && pw) {
+          debug("[server] Substituting \"nobody\"'s primary group for \"nogroup\"");
+          gid_t gid = pw->pw_gid;
+          free(buf);
+          return gid;
+        }
       }
     }
-    fatal("Cannot look up group \"%s\"", name);
+    if (ret && errno == ERANGE) {
+      if ((gr_len + gr_baselen) < gr_len || (gr_len + gr_baselen) > gr_max) {
+        fatal("[server] Cannot look up group \"%s\"! [buffer limit reached]", name);
+        break;
+      }
+      // grow the buffer by 'gr_baselen' each time getgrnam_r fails
+      gr_len += gr_baselen;
+      check(temp = realloc (buf, gr_len));
+      buf = temp;
+      continue;
+    }
+    fatal("[server] Cannot look up group \"%s\"", name);
   }
   gid_t gid = gr->gr_gid;
   free(buf);

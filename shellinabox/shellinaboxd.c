@@ -61,6 +61,9 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef HAVE_SYS_PRCTL_H
@@ -68,6 +71,7 @@
 #endif
 
 #include "libhttp/http.h"
+#include "libhttp/server.h"
 #include "logging/logging.h"
 #include "shellinabox/externalfile.h"
 #include "shellinabox/launcher.h"
@@ -103,14 +107,18 @@
 static int            port;
 static int            portMin;
 static int            portMax;
-static int            localhostOnly = 0;
-static int            noBeep        = 0;
-static int            numericHosts  = 0;
-static int            enableSSL     = 1;
-static int            enableSSLMenu = 1;
-static int            linkifyURLs   = 1;
+static int            localhostOnly     = 0;
+static int            noBeep            = 0;
+static int            numericHosts      = 0;
+static int            peerCheckEnabled  = 1;
+static int            enableSSL         = 1;
+static int            enableSSLMenu     = 1;
+static int            forceSSL          = 1; // TODO enable http fallback with commandline option
+int                   enableUtmpLogging = 1;
+static char           *messagesOrigin   = NULL;
+static int            linkifyURLs       = 1;
 static char           *certificateDir;
-static int            certificateFd = -1;
+static int            certificateFd     = -1;
 static HashMap        *externalFiles;
 static Server         *cgiServer;
 static char           *cgiSessionKey;
@@ -243,7 +251,7 @@ static int completePendingRequest(struct Session *session,
         data                    = jsonEscape(buf, len);
       }
     }
-    
+
     char *json                  = stringPrintf(NULL, "{"
                                                "\"session\":\"%s\","
                                                "\"data\":\"%s\""
@@ -275,13 +283,20 @@ static int completePendingRequest(struct Session *session,
 
 static void sessionDone(void *arg) {
   struct Session *session = (struct Session *)arg;
-  debug("Session %s done", session->sessionKey);
+  debug("[server] Session %s done.", session->sessionKey);
   if (session->cleanup) {
     terminateChild(session);
   }
   session->done           = 1;
   addToGraveyard(session);
   completePendingRequest(session, "", 0, INT_MAX);
+}
+
+static void delaySession(void) {
+  struct timespec ts;
+  ts.tv_sec              = 0;
+  ts.tv_nsec             = 200 * 1000; // Delay for 0.2 ms
+  nanosleep(&ts, NULL);
 }
 
 static int handleSession(struct ServerConnection *connection, void *arg,
@@ -303,7 +318,7 @@ static int handleSession(struct ServerConnection *connection, void *arg,
   int timedOut                  = serverGetTimeout(connection) < 0;
   if (bytes || timedOut) {
     if (!session->http && timedOut) {
-      debug("Timeout. Closing session.");
+      debug("[server] Timeout. Closing session %s!", session->sessionKey);
       session->cleanup = 1;
       return 0;
     }
@@ -317,8 +332,26 @@ static int handleSession(struct ServerConnection *connection, void *arg,
       *events                   = 0;
     }
     serverSetTimeout(connection, AJAX_TIMEOUT);
+    session->ptyFirstRead       = 0;
     return 1;
   } else {
+    if (revents & POLLHUP) {
+      if (session->useLogin && session->ptyFirstRead) {
+        // Workaround for random "Session closed" issues related to /bin/login
+        // closing and reopening our pty during initialization. This happens only
+        // on some systems like Fedora for example.
+        // Here we allow that our pty is closed by ignoring POLLHUP on first read.
+        // Delay is also needed so that login process has some time to reopen pty.
+        // Note that the issue may occur anyway but with workaround we reduce the
+        // chances.
+        debug("[server] POLLHUP received on login PTY first read!");
+        session->ptyFirstRead   = 0;
+        delaySession();
+        return 1;
+      }
+      debug("[server] POLLHUP received on PTY! Closing session %s!",
+            session->sessionKey);
+    }
     return 0;
   }
 }
@@ -327,7 +360,7 @@ static int invalidatePendingHttpSession(void *arg, const char *key,
                                         char **value) {
   struct Session *session = *(struct Session **)value;
   if (session->http && session->http == (HttpConnection *)arg) {
-    debug("Clearing pending HTTP connection for session %s", key);
+    debug("[server] Clearing pending HTTP connection for session %s!", key);
     session->http         = NULL;
     serverDeleteConnection(session->server, session->pty);
 
@@ -345,28 +378,29 @@ static int dataHandler(HttpConnection *http, struct Service *service,
   if (!buf) {
     // Somebody unexpectedly closed our http connection (e.g. because of a
     // timeout). This is the last notification that we will get.
-    deleteURL(url);
     iterateOverSessions(invalidatePendingHttpSession, http);
     return HTTP_DONE;
   }
 
   // Find an existing session, or create the record for a new one
-  int isNew;
-  struct Session *session = findCGISession(&isNew, http, url, cgiSessionKey);
+  const HashMap *args     = urlGetArgs(url);
+  const char *sessionKey  = getFromHashMap(args, "session");
+
+  int sessionIsNew;
+  struct Session *session = findSession(sessionKey, cgiSessionKey, &sessionIsNew, http);
   if (session == NULL) {
     httpSendReply(http, 400, "Bad Request", NO_MSG);
     return HTTP_DONE;
   }
 
   // Sanity check
-  if (!isNew && strcmp(session->peerName, httpGetPeerName(http))) {
-    error("Peername changed from %s to %s",
+  if (!sessionIsNew && peerCheckEnabled && strcmp(session->peerName, httpGetPeerName(http))) {
+    error("[server] Peername changed from %s to %s",
           session->peerName, httpGetPeerName(http));
     httpSendReply(http, 400, "Bad Request", NO_MSG);
     return HTTP_DONE;
   }
 
-  const HashMap *args     = urlGetArgs(session->url);
   int oldWidth            = session->width;
   int oldHeight           = session->height;
   const char *width       = getFromHashMap(args, "width");
@@ -381,7 +415,7 @@ static int dataHandler(HttpConnection *http, struct Service *service,
   }
 
   // Create a new session, if the client did not provide an existing one
-  if (isNew) {
+  if (sessionIsNew) {
     if (keys) {
     bad_new_session:
       abandonSession(session);
@@ -394,6 +428,7 @@ static int dataHandler(HttpConnection *http, struct Service *service,
       goto bad_new_session;
     }
     session->http         = http;
+    session->useLogin     = service->useLogin;
     if (launchChild(service->id, session,
                     rootURL && *rootURL ? rootURL : urlGetURL(url)) < 0) {
       abandonSession(session);
@@ -412,7 +447,8 @@ static int dataHandler(HttpConnection *http, struct Service *service,
   // Reset window dimensions of the pseudo TTY, if changed since last time set.
   if (session->width > 0 && session->height > 0 &&
       (session->width != oldWidth || session->height != oldHeight)) {
-    debug("Window size changed to %dx%d", session->width, session->height);
+    debug("[server] Window size changed to %dx%d", session->width,
+          session->height);
     setWindowSize(session->pty, session->width, session->height);
   }
 
@@ -456,7 +492,7 @@ static int dataHandler(HttpConnection *http, struct Service *service,
   session->connection     = serverGetConnection(session->server,
                                                 session->connection,
                                                 session->pty);
-  if (session->buffered || isNew) {
+  if (session->buffered || sessionIsNew) {
     if (completePendingRequest(session, "", 0, MAX_RESPONSE) &&
         session->connection) {
       // Reset the timeout, as we just received a new request.
@@ -502,6 +538,9 @@ static void serveStaticFile(HttpConnection *http, const char *contentType,
       if (!memcmp(ptr, "[if ", 4)) {
         char *bracket            = memchr(ptr + 4, ']', eol - ptr - 4);
         if (bracket != NULL && bracket > ptr + 4) {
+          if (tag != NULL) {
+            free(tag);
+          }
           check(tag              = malloc(bracket - ptr - 3));
           memcpy(tag, ptr + 4, bracket - ptr - 4);
           tag[bracket - ptr - 4] = '\000';
@@ -636,7 +675,9 @@ static int shellInABoxHttpHandler(HttpConnection *http, void *arg,
         !strncasecmp(contentType, "application/x-www-form-urlencoded", 33)) {
       // XMLHttpRequest carrying data between the AJAX application and the
       // client session.
-      return dataHandler(http, arg, buf, len, url);
+      int status          = dataHandler(http, arg, buf, len, url);
+      deleteURL(url);
+      return status;
     }
     UNUSED(rootPageSize);
     char *html            = stringPrintf(NULL, rootPageStart,
@@ -671,11 +712,16 @@ static int shellInABoxHttpHandler(HttpConnection *http, void *arg,
                                          "disableSSLMenu    = %s;\n"
                                          "suppressAllAudio  = %s;\n"
                                          "linkifyURLs       = %d;\n"
-                                         "userCSSList       = %s;\n\n",
+                                         "userCSSList       = %s;\n"
+                                         "serverMessagesOrigin = %s%s%s;\n\n",
                                          enableSSL      ? "true" : "false",
                                          !enableSSLMenu ? "true" : "false",
                                          noBeep         ? "true" : "false",
-                                         linkifyURLs, userCSSString);
+                                         linkifyURLs,
+                                         userCSSString,
+                                         messagesOrigin ? "'" : "",
+                                         messagesOrigin ? messagesOrigin : "false",
+                                         messagesOrigin ? "'" : "");
     free(userCSSString);
     int stateVarsLength   = strlen(stateVars);
     int contentLength     = stateVarsLength +
@@ -730,11 +776,11 @@ static int shellInABoxHttpHandler(HttpConnection *http, void *arg,
 static int strtoint(const char *s, int minVal, int maxVal) {
   char *ptr;
   if (!*s) {
-    fatal("Missing numeric value.");
+    fatal("[config] Missing numeric value!");
   }
   long l = strtol(s, &ptr, 10);
   if (*ptr || l < minVal || l > maxVal) {
-    fatal("Range error on numeric value \"%s\".", s);
+    fatal("[config] Range error on numeric value \"%s\"!", s);
   }
   return l;
 }
@@ -750,7 +796,7 @@ static void usage(void) {
   const char *user  = getUserName(r_uid);
   const char *group = getGroupName(r_gid);
 
-  message("Usage: shellinaboxd [OPTIONS]...\n"
+  printf("Usage: shellinaboxd [OPTIONS]...\n"
           "Starts an HTTP server that serves terminal emulators to AJAX "
           "enabled browsers.\n"
           "\n"
@@ -763,19 +809,23 @@ static void usage(void) {
           "  -f, --static-file=URL:FILE  serve static file from URL path\n"
           "  -g, --group=GID             switch to this group (default: %s)\n"
           "  -h, --help                  print this message\n"
-          "      --linkify=[none|normal|agressive] default is \"normal\"\n"
+          "      --linkify=[none|normal|aggressive] default is \"normal\"\n"
           "      --localhost-only        only listen on 127.0.0.1\n"
           "      --no-beep               suppress all audio output\n"
           "  -n, --numeric               do not resolve hostnames\n"
+          "  -m, --messages-origin=ORIGIN allow iframe message passing from origin\n"
           "      --pidfile=PIDFILE       publish pid of daemon process\n"
           "  -p, --port=PORT             select a port (default: %d)\n"
           "  -s, --service=SERVICE       define one or more services\n"
           "%s"
+          "      --disable-utmp-logging  disable logging to utmp and wtmp\n"
           "  -q, --quiet                 turn off all messages\n"
+          "      --unixdomain-only=PATH:USER:GROUP:CHMOD listen on unix socket\n"
           "  -u, --user=UID              switch to this user (default: %s)\n"
           "      --user-css=STYLES       defines user-selectable CSS options\n"
           "  -v, --verbose               enable logging messages\n"
           "      --version               prints version information\n"
+          "      --disable-peer-check    disable peer check on a session\n"
           "\n"
           "Debug, quiet, and verbose are mutually exclusive.\n"
           "\n"
@@ -800,6 +850,7 @@ static void usage(void) {
           "  ${home}    - home directory\n"
           "  ${lines}   - number of rows\n"
           "  ${peer}    - name of remote peer\n"
+          "  ${realip}  - value of HTTP header field 'X-Real-IP'\n"
           "  ${uid}     - user id\n"
           "  ${url}     - the URL that serves the terminal session\n"
           "  ${user}    - user name\n"
@@ -813,7 +864,8 @@ static void usage(void) {
           "\n"
           "OPTIONs that make up a GROUP are mutually exclusive. But "
           "individual GROUPs are\n"
-          "independent of each other.\n",
+          "independent of each other.\n"
+          "\n",
           !serverSupportsSSL() ? "" :
           "  -c, --cert=CERTDIR          set certificate dir "
           "(default: $PWD)\n"
@@ -845,6 +897,7 @@ static void parseArgs(int argc, char * const argv[]) {
   int hasSSL               = serverSupportsSSL();
   if (!hasSSL) {
     enableSSL              = 0;
+    forceSSL               = 0;
   }
   int demonize             = 0;
   int cgi                  = 0;
@@ -855,31 +908,35 @@ static void parseArgs(int argc, char * const argv[]) {
   check(cssStyleSheet      = strdup(stylesStart));
 
   for (;;) {
-    static const char optstring[] = "+hb::c:df:g:np:s:tqu:v";
+    static const char optstring[] = "+hb::c:df:g:nm:p:s:tqu:v";
     static struct option options[] = {
-      { "help",             0, 0, 'h' },
-      { "background",       2, 0, 'b' },
-      { "cert",             1, 0, 'c' },
-      { "cert-fd",          1, 0,  0  },
-      { "css",              1, 0,  0  },
-      { "cgi",              2, 0,  0  },
-      { "debug",            0, 0, 'd' },
-      { "static-file",      1, 0, 'f' },
-      { "group",            1, 0, 'g' },
-      { "linkify",          1, 0,  0  },
-      { "localhost-only",   0, 0,  0  },
-      { "no-beep",          0, 0,  0  },
-      { "numeric",          0, 0, 'n' },
-      { "pidfile",          1, 0,  0  },
-      { "port",             1, 0, 'p' },
-      { "service",          1, 0, 's' },
-      { "disable-ssl",      0, 0, 't' },
-      { "disable-ssl-menu", 0, 0,  0  },
-      { "quiet",            0, 0, 'q' },
-      { "user",             1, 0, 'u' },
-      { "user-css",         1, 0,  0  },
-      { "verbose",          0, 0, 'v' },
-      { "version",          0, 0,  0  },
+      { "help",                 0, 0, 'h' },
+      { "background",           2, 0, 'b' },
+      { "cert",                 1, 0, 'c' },
+      { "cert-fd",              1, 0,  0  },
+      { "css",                  1, 0,  0  },
+      { "cgi",                  2, 0,  0  },
+      { "debug",                0, 0, 'd' },
+      { "static-file",          1, 0, 'f' },
+      { "group",                1, 0, 'g' },
+      { "linkify",              1, 0,  0  },
+      { "localhost-only",       0, 0,  0  },
+      { "no-beep",              0, 0,  0  },
+      { "numeric",              0, 0, 'n' },
+      { "messages-origin",      1, 0, 'm' },
+      { "pidfile",              1, 0,  0  },
+      { "port",                 1, 0, 'p' },
+      { "service",              1, 0, 's' },
+      { "disable-ssl",          0, 0, 't' },
+      { "disable-ssl-menu",     0, 0,  0  },
+      { "disable-utmp-logging", 0, 0,  0  },
+      { "quiet",                0, 0, 'q' },
+      { "unixdomain-only",      1, 0,  0, },
+      { "user",                 1, 0, 'u' },
+      { "user-css",             1, 0,  0  },
+      { "verbose",              0, 0, 'v' },
+      { "version",              0, 0,  0  },
+      { "disable-peer-check",   0, 0,  0  },
       { 0,                  0, 0,  0  } };
     int idx                = -1;
     int c                  = getopt_long(argc, argv, optstring, options, &idx);
@@ -895,19 +952,20 @@ static void parseArgs(int argc, char * const argv[]) {
     }
     if (idx-- <= 0) {
       // Help (or invalid argument)
-      usage();
       if (idx < -1) {
-        fatal("Failed to parse command line");
+        fatal("[server] Failed to parse command line!");
+      } else {
+        usage();
       }
       exit(0);
     } else if (!idx--) {
       // Background
       if (cgi) {
-        fatal("CGI and background operations are mutually exclusive");
+        fatal("[config] CGI and background operations are mutually exclusive!");
       }
       demonize            = 1;
       if (optarg && pidfile) {
-        fatal("Only one pidfile can be given");
+        fatal("[config] Only one pidfile can be given!");
       }
       if (optarg && *optarg) {
         check(pidfile     = strdup(optarg));
@@ -915,55 +973,55 @@ static void parseArgs(int argc, char * const argv[]) {
     } else if (!idx--) {
       // Certificate
       if (!hasSSL) {
-        warn("Ignoring certificate directory, as SSL support is unavailable");
+        warn("[config] Ignoring certificate directory, as SSL support is unavailable.");
       }
       if (certificateFd >= 0) {
-        fatal("Cannot set both a certificate directory and file handle");
+        fatal("[config] Cannot set both a certificate directory and file handle!");
       }
       if (certificateDir) {
-        fatal("Only one certificate directory can be selected");
+        fatal("[config] Only one certificate directory can be selected!");
       }
       struct stat st;
       if (!optarg || !*optarg || stat(optarg, &st) || !S_ISDIR(st.st_mode)) {
-        fatal("\"--cert\" expects a directory name");
+        fatal("[config] Option --cert expects a directory name!");
       }
       check(certificateDir = strdup(optarg));
     } else if (!idx--) {
       // Certificate file descriptor
       if (!hasSSL) {
-        warn("Ignoring certificate directory, as SSL support is unavailable");
+        warn("[config] Ignoring certificate directory, as SSL support is unavailable.");
       }
       if (certificateDir) {
-        fatal("Cannot set both a certificate directory and file handle");
+        fatal("[config] Cannot set both a certificate directory and file handle!");
       }
       if (certificateFd >= 0) {
-        fatal("Only one certificate file handle can be provided");
+        fatal("[config] Only one certificate file handle can be provided!");
       }
       if (!optarg || *optarg < '0' || *optarg > '9') {
-        fatal("\"--cert-fd\" expects a valid file handle");
+        fatal("[config] Option --cert-fd expects a valid file handle.");
       }
       int tmpFd            = strtoint(optarg, 3, INT_MAX);
       certificateFd        = dup(tmpFd);
       if (certificateFd < 0) {
-        fatal("Invalid certificate file handle");
+        fatal("[config] Invalid certificate file handle!");
       }
       check(!NOINTR(close(tmpFd)));
     } else if (!idx--) {
       // CSS
       struct stat st;
       if (!optarg || !*optarg || stat(optarg, &st) || !S_ISREG(st.st_mode)) {
-        fatal("\"--css\" expects a file name");
+        fatal("[config] Option --css expects a file name!");
       }
       FILE *css            = fopen(optarg, "r");
       if (!css) {
-        fatal("Cannot read style sheet \"%s\"", optarg);
+        fatal("[config] Cannot read style sheet \"%s\"!", optarg);
       } else {
         check(cssStyleSheet= realloc(cssStyleSheet, strlen(cssStyleSheet) +
                                      st.st_size + 2));
         char *newData      = strrchr(cssStyleSheet, '\000');
         *newData++         = '\n';
         if (fread(newData, st.st_size, 1, css) != 1) {
-          fatal("Failed to read style sheet \"%s\"", optarg);
+          fatal("[config] Failed to read style sheet \"%s\"!", optarg);
         }
         newData[st.st_size]= '\000';
         fclose(css);
@@ -971,19 +1029,19 @@ static void parseArgs(int argc, char * const argv[]) {
     } else if (!idx--) {
       // CGI
       if (demonize) {
-        fatal("CGI and background operations are mutually exclusive");
+        fatal("[config] CGI and background operations are mutually exclusive!");
       }
       if (pidfile) {
-        fatal("CGI operation and --pidfile= are mutually exclusive");
+        fatal("[config] CGI operation and --pidfile are mutually exclusive!");
       }
       if (port) {
-        fatal("Cannot specify a port for CGI operation");
+        fatal("[config] Cannot specify a port for CGI operation!");
       }
       cgi                  = 1;
       if (optarg && *optarg) {
         char *ptr          = strchr(optarg, '-');
         if (!ptr) {
-          fatal("Syntax error in port range specification");
+          fatal("[config] Syntax error in port range specification!");
         }
         *ptr               = '\000';
         portMin            = strtoint(optarg, 1, 65535);
@@ -993,35 +1051,42 @@ static void parseArgs(int argc, char * const argv[]) {
     } else if (!idx--) {
       // Debug
       if (!logIsDefault() && !logIsDebug()) {
-        fatal("--debug is mutually exclusive with --quiet and --verbose.");
+        fatal("[config] Option --debug is mutually exclusive with --quiet and --verbose!");
       }
       verbosity            = MSG_DEBUG;
       logSetLogLevel(verbosity);
     } else if (!idx--) {
       // Static file
+      if (!optarg || !*optarg) {
+	    fatal("[config] Option --static-file expects an argument!");
+      }
       char *ptr, *path, *file;
       if ((ptr             = strchr(optarg, ':')) == NULL) {
-        fatal("Syntax error in static-file definition \"%s\".", optarg);
+        fatal("[config] Syntax error in static-file definition \"%s\"!",
+              optarg);
       }
       check(path           = malloc(ptr - optarg + 1));
       memcpy(path, optarg, ptr - optarg);
       path[ptr - optarg]   = '\000';
       check(file           = strdup(ptr + 1));
       if (getRefFromHashMap(externalFiles, path)) {
-        fatal("Duplicate static-file definition for \"%s\".", path);
+        fatal("[config] Duplicate static-file definition for \"%s\"!", path);
       }
       addToHashMap(externalFiles, path, file);
     } else if (!idx--) {
       // Group
       if (runAsGroup >= 0) {
-        fatal("Duplicate --group option.");
+        fatal("[config] Duplicate --group option.");
       }
       if (!optarg || !*optarg) {
-        fatal("\"--group\" expects a group name.");
+        fatal("[config] Option --group expects a group name.");
       }
       runAsGroup           = parseGroupArg(optarg, NULL);
     } else if (!idx--) {
       // Linkify
+      if (!optarg || !*optarg) {
+        fatal("[config] Option --linkify expects an argument.");
+      }
       if (!strcmp(optarg, "none")) {
         linkifyURLs        = 0;
       } else if (!strcmp(optarg, "normal")) {
@@ -1029,8 +1094,8 @@ static void parseArgs(int argc, char * const argv[]) {
       } else if (!strcmp(optarg, "aggressive")) {
         linkifyURLs        = 2;
       } else {
-        fatal("Invalid argument for --linkify. Must be "
-              "\"none\", \"normal\", or \"aggressive\".");
+        fatal("[config] Invalid argument for --linkify. Must be \"none\", \"normal\", "
+              "or \"aggressive\".");
       }
     } else if (!idx--) {
       // Localhost Only
@@ -1042,95 +1107,161 @@ static void parseArgs(int argc, char * const argv[]) {
       // Numeric
       numericHosts         = 1;
     } else if (!idx--) {
-      // Pidfile
-      if (cgi) {
-        fatal("CGI operation and --pidfile= are mutually exclusive");
+      // Messages origin
+      if (messagesOrigin) {
+        fatal("[config] Duplicated --messages-origin option.");
       }
       if (!optarg || !*optarg) {
-        fatal("Must specify a filename for --pidfile= option");
+        fatal("[config] Option --messages-origin expects an argument.");
+      }
+      check(messagesOrigin = strdup(optarg));
+    } else if (!idx--) {
+      // Pidfile
+      if (cgi) {
+        fatal("[config] CGI operation and --pidfile are mutually exclusive");
+      }
+      if (!optarg || !*optarg) {
+        fatal("[config] Must specify a filename for --pidfile option");
       }
       if (pidfile) {
-        fatal("Only one pidfile can be given");
+        fatal("[config] Only one pidfile can be given");
       }
       check(pidfile        = strdup(optarg));
     } else if (!idx--) {
       // Port
       if (port) {
-        fatal("Duplicate --port option");
+        fatal("[config] Duplicate --port option!");
       }
       if (cgi) {
-        fatal("Cannot specifiy a port for CGI operation");
+        fatal("[config] Cannot specifiy a port for CGI operation");
       }
       if (!optarg || *optarg < '0' || *optarg > '9') {
-        fatal("\"--port\" expects a port number.");
+        fatal("[config] Option --port expects a port number.");
       }
       port = strtoint(optarg, 1, 65535);
     } else if (!idx--) {
       // Service
+      if (!optarg || !*optarg) {
+        fatal("[config] Option \"--service\" expects an argument.");
+      }
       struct Service *service;
       service              = newService(optarg);
       if (getRefFromHashMap(serviceTable, service->path)) {
-        fatal("Duplicate service description for \"%s\".", service->path);
+        fatal("[config] Duplicate service description for \"%s\".", service->path);
       }
       addToHashMap(serviceTable, service->path, (char *)service);
     } else if (!idx--) {
       // Disable SSL
       if (!hasSSL) {
-        warn("Ignoring disable-ssl option, as SSL support is unavailable");
+        warn("[config] Ignoring disable-ssl option, as SSL support is unavailable.");
       }
       enableSSL            = 0;
+      forceSSL             = 0;
     } else if (!idx--) {
       // Disable SSL Menu
       if (!hasSSL) {
-        warn("Ignoring disable-ssl-menu option, as SSL support is "
-             "unavailable");
+        warn("[config] Ignoring disable-ssl-menu option, as SSL support is unavailable.");
       }
       enableSSLMenu        = 0;
     } else if (!idx--) {
+      // Disable UTMP logging
+      enableUtmpLogging    = 0;
+    } else if (!idx--) {
       // Quiet
       if (!logIsDefault() && !logIsQuiet()) {
-        fatal("--quiet is mutually exclusive with --debug and --verbose.");
+         fatal("[config] Option --quiet is mutually exclusive with --debug and --verbose!");
       }
       verbosity            = MSG_QUIET;
       logSetLogLevel(verbosity);
     } else if (!idx--) {
+      // Unix domain only
+      if (!optarg || !*optarg) {
+        fatal("[config] Option --unixdomain-only expects an argument!");
+      }
+      char *ptr, *s, *tmp;
+
+      // Unix domain path
+      s                    = optarg;
+      ptr                  = strchr(s, ':');
+      if (ptr == NULL || ptr == s || ptr - s >= UNIX_PATH_MAX) {
+        fatal("[config] Syntax error in unixdomain-only path definition \"%s\".",
+		      optarg);
+      }
+      check(unixDomainPath = strndup(s, ptr - s));
+
+      // Unix domain user
+      s                    = ptr + 1;
+      ptr                  = strchr(s, ':');
+      if (ptr == NULL || ptr == s) {
+        fatal("[config] Syntax error in unixdomain-only user definition \"%s\".",
+              optarg);
+      }
+      check(tmp            = strndup(s, ptr - s));
+      unixDomainUser       = parseUserArg(tmp, NULL);
+      free(tmp);
+
+      // Unix domain group
+      s                    = ptr + 1;
+      ptr                  = strchr(s, ':');
+      if (ptr == NULL || ptr == s) {
+        fatal("[config] Syntax error in unixdomain-only group definition \"%s\".",
+		      optarg);
+      }
+      check(tmp            = strndup(s, ptr - s));
+      unixDomainGroup      = parseGroupArg(tmp, NULL);
+      free(tmp);
+
+      // Unix domain chmod
+      s                    = ptr + 1;
+      if (strlen(ptr) == 1) {
+        fatal("[config] Syntax error in unixdomain-only chmod definition \"%s\".",
+              optarg);
+      }
+      unixDomainChmod      = strtol(s, NULL, 8);
+
+    } else if (!idx--) {
       // User
       if (runAsUser >= 0) {
-        fatal("Duplicate --user option.");
+        fatal("[config] Duplicate --user option.");
       }
       if (!optarg || !*optarg) {
-        fatal("\"--user\" expects a user name.");
+        fatal("[config] Option --user expects a user name.");
       }
       runAsUser            = parseUserArg(optarg, NULL);
     } else if (!idx--) {
       // User CSS
       if (!optarg || !*optarg) {
-        fatal("\"--user-css\" expects a list of styles sheets and labels");
+        fatal("[config] Option --user-css expects a list of styles sheets "
+              "and labels!");
       }
       parseUserCSS(&userCSSList, optarg);
     } else if (!idx--) {
       // Verbose
       if (!logIsDefault() && (!logIsInfo() || logIsDebug())) {
-        fatal("--verbose is mutually exclusive with --debug and --quiet");
+         fatal("[config] Option --verbose is mutually exclusive with --debug and --quiet!");
       }
       verbosity            = MSG_INFO;
       logSetLogLevel(verbosity);
     } else if (!idx--) {
       // Version
-      message("ShellInABox version " VERSION " (revision " VCS_REVISION ")");
+      printf("ShellInABox version " VERSION VCS_REVISION "\n");
       exit(0);
+    } else if (!idx--) {
+      // disable-peer-check
+      peerCheckEnabled = 0;
     }
   }
   if (optind != argc) {
-    usage();
-    fatal("Failed to parse command line");
+    fatal("[config] Failed to parse command line!");
   }
   char *buf                = NULL;
   check(argc >= 1);
+
+  info("[server] Version " VERSION VCS_REVISION);
   for (int i = 0; i < argc; i++) {
-    buf                    = stringPrintf(buf, " %s", argv[i]);
+    buf                    = stringPrintf(buf, "%s ", argv[i]);
   }
-  info("Command line:%s", buf);
+  info("[server] Command line: %s", buf);
   free(buf);
 
   // If the user did not specify a port, use the default one
@@ -1156,7 +1287,7 @@ static void parseArgs(int argc, char * const argv[]) {
   if (cgi) {
     for (int i = 0; i < numServices; i++) {
       if (strcmp(services[i]->path, "/")) {
-        fatal("Non-root service URLs are incompatible with CGI operation");
+        fatal("[config] Non-root service URLs are incompatible with CGI operation");
       }
     }
     check(cgiSessionKey    = newSessionKey());
@@ -1206,7 +1337,8 @@ static void removeLimits() {
 }
 
 static void setUpSSL(Server *server) {
-  serverEnableSSL(server, enableSSL);
+
+  serverSetupSSL(server, enableSSL, forceSSL);
 
   // Enable SSL support (if available)
   if (enableSSL) {
@@ -1216,7 +1348,7 @@ static void setUpSSL(Server *server) {
     } else if (certificateDir) {
       char *tmp;
       if (strchr(certificateDir, '%')) {
-        fatal("Invalid certificate directory name \"%s\".", certificateDir);
+        fatal("[ssl] Invalid certificate directory name \"%s\".", certificateDir);
       }
       check(tmp = stringPrintf(NULL, "%s/certificate%%s.pem", certificateDir));
       serverSetCertificate(server, tmp, 1);
@@ -1278,8 +1410,9 @@ int main(int argc, char * const argv[]) {
     check(port    = serverGetListeningPort(server));
     printf("X-ShellInABox-Port: %d\r\n"
            "X-ShellInABox-Pid: %d\r\n"
+           "X-ShellInABox-Session: %s\r\n"
            "Content-type: text/html; charset=utf-8\r\n\r\n",
-           port, getpid());
+           port, getpid(), cgiSessionKey);
     UNUSED(cgiRootSize);
     printfUnchecked(cgiRootStart, port, cgiSessionKey);
     fflush(stdout);
@@ -1330,6 +1463,7 @@ int main(int argc, char * const argv[]) {
   free(services);
   free(certificateDir);
   free(cgiSessionKey);
+  free(messagesOrigin);
   if (pidfile) {
     // As a convenience, remove the pidfile, if it is still the version that
     // we wrote. In general, pidfiles are not expected to be incredibly
@@ -1351,6 +1485,6 @@ int main(int argc, char * const argv[]) {
     }
     free((char *)pidfile);
   }
-  info("Done");
+  info("[server] Done");
   _exit(0);
 }

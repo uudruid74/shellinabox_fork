@@ -1,103 +1,121 @@
-ATTENTION!!
+
+shellinabox
 ===========
 
-This was originally forked from pythonanywhere/shellinabox_fork.
-Please ignore what it says up top.  I plan on rebasing this, so stay tuned!
-
-The pythonanwhere fork is officially dead and this fork now takes it's place.
-There is about to be a resync with our sister repo shellinabox/shellinabox,
-and I hope to be able to find a way to re-base the repo at that time so we can
-do pull requests and get things going.
+[![Build Status](https://drone.io/github.com/shellinabox/shellinabox/status.png)](https://drone.io/github.com/shellinabox/shellinabox/latest)
+[![Join the chat at https://gitter.im/shellinabox/shellinabox](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/shellinabox/shellinabox?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 
-MAJOR CHANGES
-=============
+This is an unofficial fork of the project **Shell In A Box**. The fork was created because
+the original project was not maintained anymore and we cannot contact the original
+repository owners.
 
-  *  New Color System - more accurate and converts 256 colors to 16
-  *  Iframe scrolling bug fixed
-  *  No Beep Fixed - now it will beep!
-  *  Swipe a touchscreen to change windows in tmux
-  *  Nicer pop-up menu design
-  *  Many more
+Our aim is to continue with maintenance of the shellinabox project. For a list of
+recent changes, please see [CHANGELOG.md](/CHANGELOG.md).
 
-
-
-Updating software
-=================
-
-Always best to update the software and firmware.
-
-	apt-get update
+If you have any questions, issues, or patches, please feel free to submit a pull
+request or report an issue. You can also drop an email to the original project
+[issue #261](https://code.google.com/p/shellinabox/issues/detail?id=261) discussion
+from where this fork started.
 
 
-Installing necessary applications
-=================================
+About shellinabox
+-----------------
 
-Install some applications before proceeeding.
+Shell In A Box implements a web server that can export arbitrary command line
+tools to a web based terminal emulator. This emulator is accessible to any
+JavaScript and CSS enabled web browser and does not require any additional
+browser plugins.
 
-	apt-get install git dpkg-dev debhelper autotools-dev libpam0g-dev libpam0g lighttpd
+![Shell In A Box preview](/misc/preview.gif?raw=true)
 
+More information:
 
-Installing and configuring Shell In A Box
-=========================================
-
-Clone the current git repository of Shell In A Box.
-
-	git clone https://github.com/rsolomou/shellinabox_fork.git
-	cd shellinabox_fork
-
-Build the package
-
-	dpkg-buildpackage
-	dpkg -i ../shellinabox_2.14-1_armhf.deb
-
-Edit the settings file.
-
-	nano /etc/default/shellinabox
-
-Change the arguments passed to the ones below:
-
-	SHELLINABOX_ARGS="--no-beep -s /terminal:LOGIN --disable-ssl --localhost-only"
-
-Restart the Shell In A Box service.
-
-	/etc/init.d/shellinabox restart
+* [Manual page](https://github.com/shellinabox/shellinabox/wiki/shellinaboxd_man)
+* [Official site](https://code.google.com/p/shellinabox)
+* [Official wiki](https://code.google.com/p/shellinabox/wiki/shellinaboxd_man)
 
 
-Configuring lighttpd
-====================
+Build
+-----------------
 
-Set the proxy settings for redirecting to /terminal.
+For building **shellinabox** from source on Debian or RHEL based systems use commands
+listed below. This will create executable file `shellinaboxd` in project directory.
 
-	cd /etc/lighttpd/conf-enabled
-	ln -s ../conf-available/10-proxy.conf
-	nano /etc/lighttpd/lighttpd.conf
+1. Install dependencies
 
-Add the following to the end of the file:
+   ```
+    apt-get install git libssl-dev libpam0g-dev zlib1g-dev dh-autoreconf
+   ```
+   
+   or
+   
+   ```
+   yum install git openssl-devel pam-devel zlib-devel autoconf automake libtool
+   ```
 
-     proxy.server = (
-          "/terminal" =>
-               ( (
-                    "host" => "127.0.0.1",
-					"port" => 4200
-               ) )
-     )
+2. Clone source files and move to project directory
 
-Restart the lighttpd service.
+   ```
+    git clone https://github.com/shellinabox/shellinabox.git && cd shellinabox
+   ```
 
-	/etc/init.d/lighttpd restart
+3. Run autotools in project directory
+
+   ```
+    autoreconf -i
+   ```
+
+4. Run configure and make in project directory
+
+   ```
+    ./configure && make
+   ```
+
+#### Debian package
+
+For building and installing `.deb` packages you can use commands listed bellow.
+Note that dependencies from the first step above are also required.
+
+1. Build package
+
+    ```
+    dpkg-buildpackage -b
+    ```
+
+2. Install package
+
+    ```
+    dpkg -i ../shellinabox_{ver}_{arch}.deb
+    ```
+
+For more information about `.deb` packages please see [INSTALL.Debian](/INSTALL.Debian) file.
+
+Issues
+-----------------
+
+All reported issues were imported from [Google Code Project Issues](https://code.google.com/p/shellinabox/issues/list).
+You can report new issues here, but first please try to reproduce them with package
+created from our sources. In new issue report please include following things:
+
+* Name and version of your operating system
+* Name and version of your browser
+* Version of shellinabox
+* Steps to reproduce the problem
+
+Also feel free to post any questions or comments in [shellinabox chat room](https://gitter.im/shellinabox/shellinabox)
+on Gitter.
 
 
-Finishing
-=========
+Known Issues
+------------
 
-You should now be able to see your Shell In A Box terminal when you visit the following link:
+* The openssl package is required for HTTP/SSL support.
+  Shell-in-a-box may be used without SSL such that the login session
+  is not encrypted.  To enable automatic creation of self-signed
+  certificates or to use a generated certificate, install openssl.
 
-	http://raspberry-pi-ip/terminal
-
-
-Links & Credits
-===================
-
-* [Original Tutorial](http://blog.remibergsma.com/2013/03/15/always-available-linux-terminal-shell-in-a-box-on-raspberry-pi/)
-* [Original Repository](https://github.com/pythonanywhere/shellinabox_fork)
+* On Debian Jessie, the default openssl package does not include the
+  utilities necessary for Shell-in-a-box to generate self-signed
+  certificates.  Upgrade openssl to install a version of the tools
+  that support certificate creation.

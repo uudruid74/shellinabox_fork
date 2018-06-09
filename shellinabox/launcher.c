@@ -63,6 +63,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/ttydefaults.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/utsname.h>
@@ -128,6 +129,8 @@ typedef struct pam_handle pam_handle_t;
 #define UNUSED(x)    do { (void)(x); } while (0)
 #endif
 
+#define UNUSED_RETURN(x) do { (void)((x)+1); } while (0)
+
 #undef pthread_once
 #undef execle
 int execle(const char *, const char *, ...);
@@ -169,6 +172,13 @@ static int (*x_misc_conv)(int, const struct pam_message **,
 
 static int   launcher = -1;
 static uid_t restricted;
+
+// From shellinabox/shellinaboxd.c
+extern int enableUtmpLogging;
+
+#if defined(HAVE_SECURITY_PAM_APPL_H)
+static int pamSessionSighupFlag;
+#endif
 
 // MacOS X has a somewhat unusual definition of getgrouplist() which can
 // trigger a compile warning.
@@ -273,33 +283,29 @@ static int read_string(int echo, const char *prompt, char **retstr) {
     term_tmp.c_lflag    &= ~ECHO;
   }
   int nc;
-  for (;;) {
-    tcsetattr(0, TCSAFLUSH, &term_tmp);
-    fprintf(stderr, "%s", prompt);
-    char *line;
-    const int lineLength = 512;
-    check(line           = calloc(1, lineLength));
-    nc                   = read(0, line, lineLength - 1);
-    tcsetattr(0, TCSADRAIN, &term_before);
-    if (!echo) {
+  tcsetattr(0, TCSAFLUSH, &term_tmp);
+  fprintf(stderr, "%s", prompt);
+  char *line;
+  const int lineLength = 512;
+  check(line           = calloc(1, lineLength));
+  nc                   = read(0, line, lineLength - 1);
+  tcsetattr(0, TCSADRAIN, &term_before);
+  if (!echo) {
+    fprintf(stderr, "\n");
+  }
+  if (nc > 0) {
+    if (line[nc-1] == '\n') {
+      nc--;
+    } else if (echo) {
       fprintf(stderr, "\n");
     }
-    if (nc > 0) {
-      if (line[nc-1] == '\n') {
-        nc--;
-      } else if (echo) {
-        fprintf(stderr, "\n");
-      }
-      line[nc]           = '\000';
-      check(*retstr      = line);
-      break;
-    } else {
-      memset(line, 0, lineLength);
-      free(line);
-      if (echo) {
-        fprintf(stderr, "\n");
-      }
-      break;
+    line[nc]           = '\000';
+    check(*retstr      = line);
+  } else {
+    memset(line, 0, lineLength);
+    free(line);
+    if (echo) {
+      fprintf(stderr, "\n");
     }
   }
   tcsetattr(0, TCSADRAIN, &term_before);
@@ -432,7 +438,7 @@ static void loadPAM(void) {
         *symbols[i].var = (void *)my_misc_conv;
         continue;
       }
-      debug("Failed to load PAM support. Could not find \"%s\"",
+      debug("[server] Failed to load PAM support. Could not find \"%s\"!",
             symbols[i].fn);
       for (unsigned j = 0; j < sizeof(symbols)/sizeof(symbols[0]); j++) {
         *symbols[j].var = NULL;
@@ -440,7 +446,7 @@ static void loadPAM(void) {
       return;
     }
   }
-  debug("Loaded PAM suppport");
+  debug("[server] Loaded PAM suppport");
 }
 #endif
 
@@ -523,8 +529,12 @@ int launchChild(int service, struct Session *session, const char *url) {
   request->terminate   = -1;
   request->width       = session->width;
   request->height      = session->height;
-  strncat(request->peerName, httpGetPeerName(session->http),
-          sizeof(request->peerName) - 1);
+  const char *peerName = httpGetPeerName(session->http);
+  strncat(request->peerName, peerName, sizeof(request->peerName) - 1);
+  const char *realIP   = httpGetRealIP(session->http);
+  if (realIP && *realIP) {
+    strncat(request->realIP, realIP, sizeof(request->realIP) - 1);
+  }
   request->urlLength   = strlen(u);
   memcpy(&request->url, u, request->urlLength);
   free(u);
@@ -564,7 +574,7 @@ int terminateChild(struct Session *session) {
   }
 
   if (session->pid < 1) {
-    debug("Child pid for termination not valid!");
+    debug("[server] Child pid for termination not valid!");
     return -1;
   }
 
@@ -574,7 +584,7 @@ int terminateChild(struct Session *session) {
   check(request        = calloc(len, 1));
   request->terminate   = session->pid;
   if (NOINTR(write(launcher, request, len)) != len) {
-    debug("Child %d termination request failed!", request->terminate);
+    debug("[server] Child %d termination request failed!", request->terminate);
     free(request);
     return -1;
   }
@@ -597,7 +607,7 @@ struct Utmp {
 static HashMap *childProcesses;
 
 void initUtmp(struct Utmp *utmp, int useLogin, const char *ptyPath,
-              const char *peerName) {
+              const char *peerName, const char *realIP) {
   memset(utmp, 0, sizeof(struct Utmp));
   utmp->pty                 = -1;
   utmp->useLogin            = useLogin;
@@ -609,7 +619,11 @@ void initUtmp(struct Utmp *utmp, int useLogin, const char *ptyPath,
   strncat(&utmp->utmpx.ut_line[0], ptyPath + 5,   sizeof(utmp->utmpx.ut_line) - 1);
   strncat(&utmp->utmpx.ut_id[0],   ptyPath + 8,   sizeof(utmp->utmpx.ut_id) - 1);
   strncat(&utmp->utmpx.ut_user[0], "SHELLINABOX", sizeof(utmp->utmpx.ut_user) - 1);
-  strncat(&utmp->utmpx.ut_host[0], peerName,      sizeof(utmp->utmpx.ut_host) - 1);
+  char remoteHost[256];
+  snprintf(remoteHost, 256,
+           (*realIP) ? "%s, %s" : "%s%s", peerName,
+           (*realIP) ? realIP : "");
+  strncat(&utmp->utmpx.ut_host[0], remoteHost,    sizeof(utmp->utmpx.ut_host) - 1);
   struct timeval tv;
   check(!gettimeofday(&tv, NULL));
   utmp->utmpx.ut_tv.tv_sec  = tv.tv_sec;
@@ -618,10 +632,10 @@ void initUtmp(struct Utmp *utmp, int useLogin, const char *ptyPath,
 }
 
 struct Utmp *newUtmp(int useLogin, const char *ptyPath,
-                     const char *peerName) {
+                     const char *peerName, const char *realIP) {
   struct Utmp *utmp;
   check(utmp = malloc(sizeof(struct Utmp)));
-  initUtmp(utmp, useLogin, ptyPath, peerName);
+  initUtmp(utmp, useLogin, ptyPath, peerName, realIP);
   return utmp;
 }
 
@@ -664,19 +678,21 @@ void destroyUtmp(struct Utmp *utmp) {
       uid_t r_gid, e_gid, s_gid;
       check(!getresuid(&r_uid, &e_uid, &s_uid));
       check(!getresgid(&r_gid, &e_gid, &s_gid));
-      setresuid(0, 0, 0);
-      setresgid(0, 0, 0);
+      UNUSED_RETURN(setresuid(0, 0, 0));
+      UNUSED_RETURN(setresgid(0, 0, 0));
 
-      setutxent();
-      pututxline(&utmp->utmpx);
-      endutxent();
+      if (enableUtmpLogging) {
+        setutxent();
+        pututxline(&utmp->utmpx);
+        endutxent();
 
 #if defined(HAVE_UPDWTMP) || defined(HAVE_UPDWTMPX)
-      if (!utmp->useLogin) {
-        updwtmpx("/var/log/wtmp", &utmp->utmpx);
-      }
+        if (!utmp->useLogin) {
+          updwtmpx("/var/log/wtmp", &utmp->utmpx);
+        }
 #endif
-      
+      }
+
       // Switch back to the lower privileges
       check(!setresgid(r_gid, e_gid, s_gid));
       check(!setresuid(r_uid, e_uid, s_uid));
@@ -703,6 +719,7 @@ void closeAllFds(int *exceptFds, int num) {
   // Close all file handles. If possible, scan through "/proc/self/fd" as
   // that is faster than calling close() on all possible file handles.
   int nullFd  = open("/dev/null", O_RDWR);
+  check(nullFd > 2);
   DIR *dir    = opendir("/proc/self/fd");
   if (dir == 0) {
     for (int i = sysconf(_SC_OPEN_MAX); --i > 0; ) {
@@ -776,7 +793,7 @@ static int ptsname_r(int fd, char *buf, size_t buflen) {
 #endif
 
 static int forkPty(int *pty, int useLogin, struct Utmp **utmp,
-                   const char *peerName) {
+                   const char *peerName, const char *realIP) {
   int slave;
   #ifdef HAVE_OPENPTY
   char* ptyPath = NULL;
@@ -797,7 +814,7 @@ static int forkPty(int *pty, int useLogin, struct Utmp **utmp,
     size_t length = 32;
     char* path = NULL;
     while (path == NULL) {
-      path = malloc (length);
+      check(path = malloc(length));
       *path = 0;
       if (ptsname_r (*pty, path, length)) {
         if (errno == ERANGE) {
@@ -843,7 +860,7 @@ static int forkPty(int *pty, int useLogin, struct Utmp **utmp,
           ptyPath[5]        = 't';
         }
         if ((slave          = NOINTR(open(ptyPath, O_RDWR|O_NOCTTY))) >= 0) {
-          debug("Opened old-style pty: %s", ptyPath);
+          debug("[server] Opened old-style pty: %s", ptyPath);
           goto success;
         }
         NOINTR(close(*pty));
@@ -857,7 +874,7 @@ static int forkPty(int *pty, int useLogin, struct Utmp **utmp,
   #endif
 
   // Fill in utmp entry
-  *utmp                     = newUtmp(useLogin, ptyPath, peerName);
+  *utmp                     = newUtmp(useLogin, ptyPath, peerName, realIP);
 
   // Now, fork off the child process
   pid_t pid;
@@ -905,7 +922,7 @@ static int forkPty(int *pty, int useLogin, struct Utmp **utmp,
     (*utmp)->utmpx.ut_pid   = pid;
 #endif
     (*utmp)->pty            = *pty;
-    fcntl(*pty, F_SETFL, O_NONBLOCK|O_RDWR);
+    check(!fcntl(*pty, F_SETFL, O_NONBLOCK | O_RDWR));
     NOINTR(close(slave));
     return pid;
   }
@@ -1014,7 +1031,7 @@ static pam_handle_t *internalLogin(struct Service *service, struct Utmp *utmp,
           if (!((ch >= '0' && ch <= '9') ||
                 (ch >= 'A' && ch <= 'Z') ||
                 (ch >= 'a' && ch <= 'z') ||
-                ch == '-' || ch == '_' || ch == '.')) {
+                ch == '-' || ch == '_' || ch == '.' || ch == '@')) {
             goto invalid_user_name;
           }
         }
@@ -1223,7 +1240,7 @@ static pam_handle_t *internalLogin(struct Service *service, struct Utmp *utmp,
 
   // Update utmp/wtmp entries
 #ifdef HAVE_UTMPX_H
-  if (service->authUser != 2 /* SSH */) {
+  if (enableUtmpLogging && service->authUser != 2 /* SSH */) {
     memset(&utmp->utmpx.ut_user, 0, sizeof(utmp->utmpx.ut_user));
     strncat(&utmp->utmpx.ut_user[0], service->user,
             sizeof(utmp->utmpx.ut_user) - 1);
@@ -1250,7 +1267,8 @@ static void destroyVariableHashEntry(void *arg ATTR_UNUSED, char *key,
 
 static void execService(int width ATTR_UNUSED, int height ATTR_UNUSED,
                         struct Service *service, const char *peerName,
-                        char **environment, const char *url) {
+                        const char *realIP, char **environment,
+                        const char *url) {
   UNUSED(width);
   UNUSED(height);
 
@@ -1286,6 +1304,9 @@ static void execService(int width ATTR_UNUSED, int height ATTR_UNUSED,
   addToHashMap(vars, key, value);
   check(key                   = strdup("peer"));
   check(value                 = strdup(peerName));
+  addToHashMap(vars, key, value);
+  check(key                   = strdup("realip"));
+  check(value                 = strdup(realIP));
   addToHashMap(vars, key, value);
   check(key                   = strdup("uid"));
   addToHashMap(vars, key, stringPrintf(NULL, "%d", service->uid));
@@ -1437,7 +1458,8 @@ static void execService(int width ATTR_UNUSED, int height ATTR_UNUSED,
 
   extern char **environ;
   environ                     = environment;
-  char *cmd                   = strdup(argv[0]);
+  char *cmd;
+  check(cmd                   = strdup(argv[0]));
   char *slash                 = strrchr(argv[0], '/');
   if (slash) {
     memmove(argv[0], slash + 1, strlen(slash));
@@ -1449,7 +1471,10 @@ static void execService(int width ATTR_UNUSED, int height ATTR_UNUSED,
     argv[0][0]                = '-';
     argv[0][len + 1]          = '\000';
   }
-  execvp(cmd, argv);
+  if (execvp(cmd, argv) < 0) {
+    free(argv);
+    free(cmd);
+  }
 }
 
 void setWindowSize(int pty, int width, int height) {
@@ -1475,8 +1500,19 @@ void setWindowSize(int pty, int width, int height) {
   }
 }
 
+#if defined(HAVE_SECURITY_PAM_APPL_H)
+static void pamSessionSighupHandler(int sig ATTR_UNUSED,
+                                    siginfo_t *info ATTR_UNUSED,
+                                    void *unused ATTR_UNUSED) {
+  UNUSED(sig);
+  UNUSED(info);
+  UNUSED(unused);
+  pamSessionSighupFlag = 1;
+}
+#endif
+
 static void childProcess(struct Service *service, int width, int height,
-                         struct Utmp *utmp, const char *peerName,
+                         struct Utmp *utmp, const char *peerName, const char *realIP,
                          const char *url) {
   // Set initial window size
   setWindowSize(0, width, height);
@@ -1486,7 +1522,7 @@ static void childProcess(struct Service *service, int width, int height,
   char **environment;
   check(environment             = malloc(2*sizeof(char *)));
   int numEnvVars                = 1;
-  check(environment[0]          = strdup("TERM=xterm-256color"));
+  check(environment[0]          = strdup("TERM=xterm"));
   if (width > 0 && height > 0) {
     numEnvVars                 += 2;
     check(environment           = realloc(environment,
@@ -1504,40 +1540,55 @@ static void childProcess(struct Service *service, int width, int height,
                                                legalEnv[i], value);
     }
   }
+
+  // Add useful environment variables that can be used in custom client scripts
+  // or programs.
+  numEnvVars                   += 3;
+  check(environment             = realloc(environment,
+                                          (numEnvVars + 1)*sizeof(char *)));
+  environment[numEnvVars-3]     = stringPrintf(NULL, "SHELLINABOX_URL=%s",
+                                               url);
+  environment[numEnvVars-2]     = stringPrintf(NULL, "SHELLINABOX_PEERNAME=%s",
+                                               peerName);
+  environment[numEnvVars-1]     = stringPrintf(NULL, "SHELLINABOX_REALIP=%s",
+                                               realIP);
   environment[numEnvVars]       = NULL;
 
   // Set initial terminal settings
   struct termios tt = { 0 };
   tcgetattr(0, &tt);
-  cfsetispeed(&tt, 38400);
-  cfsetospeed(&tt, 38400);
   tt.c_iflag                    =  TTYDEF_IFLAG & ~ISTRIP;
   tt.c_oflag                    =  TTYDEF_OFLAG;
   tt.c_lflag                    =  TTYDEF_LFLAG;
   tt.c_cflag                    = (TTYDEF_CFLAG & ~(CS7|PARENB|HUPCL)) | CS8;
   tt.c_cc[VERASE]               = '\x7F';
+  cfsetispeed(&tt, B38400);
+  cfsetospeed(&tt, B38400);
   tcsetattr(0, TCSAFLUSH, &tt);
 
-  // Assert root privileges in order to update utmp entry.
-  setresuid(0, 0, 0);
-  setresgid(0, 0, 0);
+  // Assert root privileges in order to update utmp entry. We can only do that,
+  // if we have root permissions otherwise this fails.
+  UNUSED_RETURN(setresuid(0, 0, 0));
+  UNUSED_RETURN(setresgid(0, 0, 0));
 #ifdef HAVE_UTMPX_H
-  setutxent();
-  struct utmpx utmpx            = utmp->utmpx;
-  if (service->useLogin || service->authUser) {
-    utmpx.ut_type               = LOGIN_PROCESS;
-    memset(utmpx.ut_host, 0, sizeof(utmpx.ut_host));
-  }
-  pututxline(&utmpx);
-  endutxent();
+  if (enableUtmpLogging) {
+    setutxent();
+    struct utmpx utmpx            = utmp->utmpx;
+    if (service->useLogin || service->authUser) {
+      utmpx.ut_type               = LOGIN_PROCESS;
+      memset(utmpx.ut_host, 0, sizeof(utmpx.ut_host));
+    }
+    pututxline(&utmpx);
+    endutxent();
 
 #if defined(HAVE_UPDWTMP) || defined(HAVE_UPDWTMPX)
-  if (!utmp->useLogin) {
-    memset(&utmpx.ut_user, 0, sizeof(utmpx.ut_user));
-    strncat(&utmpx.ut_user[0], "LOGIN", sizeof(utmpx.ut_user) - 1);
-    updwtmpx("/var/log/wtmp", &utmpx);
-  }
+    if (!utmp->useLogin) {
+      memset(&utmpx.ut_user, 0, sizeof(utmpx.ut_user));
+      strncat(&utmpx.ut_user[0], "LOGIN", sizeof(utmpx.ut_user) - 1);
+      updwtmpx("/var/log/wtmp", &utmpx);
+    }
 #endif
+  }
 #endif
 
   // Create session. We might have to fork another process as PAM wants us
@@ -1550,7 +1601,7 @@ static void childProcess(struct Service *service, int width, int height,
 #if defined(HAVE_SECURITY_PAM_APPL_H)
     if (pam && !geteuid()) {
       if (pam_open_session(pam, PAM_SILENT) != PAM_SUCCESS) {
-        fprintf(stderr, "Access denied.\n");
+        fprintf(stderr, "[server] Unable to open PAM session!\n");
         _exit(1);
       }
       pid_t pid                 = fork();
@@ -1560,10 +1611,27 @@ static void childProcess(struct Service *service, int width, int height,
       case 0:
         break;
       default:;
-        // Finish all pending PAM operations.
+        // This process is used for finishing all pending PAM operations.
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_flags             = SA_NOCLDSTOP | SA_SIGINFO;
+        sa.sa_sigaction         = pamSessionSighupHandler;
+        check(!sigaction(SIGHUP, &sa, NULL));
         int status, rc;
-        check(NOINTR(waitpid(pid, &status, 0)) == pid);
-        rc = pam_close_session(pam, PAM_SILENT);
+        while (1) {
+          pamSessionSighupFlag  = 0;
+          int val               = waitpid(pid, &status, 0);
+          if (val < 0 && errno == EINTR) {
+            if (pamSessionSighupFlag) {
+              // If SIGHUP signal is received it needs to be forwarded to child
+              // process, which is acctual service process.
+              kill(pid, SIGHUP);
+            }
+          } else {
+            break;
+          }
+        }
+        rc                      = pam_close_session(pam, PAM_SILENT);
         pam_end(pam, rc | PAM_DATA_SILENT);
         _exit(WIFEXITED(status) ? WEXITSTATUS(status) : -WTERMSIG(status));
       }
@@ -1576,7 +1644,7 @@ static void childProcess(struct Service *service, int width, int height,
   // Change user and group ids
   check(!setresgid(service->gid, service->gid, service->gid));
   check(!setresuid(service->uid, service->uid, service->uid));
-  
+
   // Change working directory
   if (service->useHomeDir) {
     check(!service->useLogin);
@@ -1601,14 +1669,26 @@ static void childProcess(struct Service *service, int width, int height,
     }
   }
 
+  // Reset the sigaction for HUP to the default, so the child does not inherit the action of SIG_IGN from us.
+  // We need the child to be able to get HUP's because we send HUP if the session times out/closes.
+  signal(SIGHUP, SIG_DFL);
+
   // Finally, launch the child process.
   if (service->useLogin == 1) {
-    execle("/bin/login", "login", "-p", "-h", peerName,
+    // At login service launch, we try to pass real IP in '-h' parameter. Real
+    // IP is provided in HTTP header field 'X-Real-IP', if ShellInABox is used
+    // behind properly configured HTTP proxy.
+    char remoteHost[256];
+    snprintf(remoteHost, 256,
+             (*realIP) ? "%s, %s" : "%s%s", peerName,
+             (*realIP) ? realIP : "");
+    execle("/bin/login", "login", "-p", "-h", remoteHost,
            (void *)0, environment);
-    execle("/usr/bin/login", "login", "-p", "-h", peerName,
+    execle("/usr/bin/login", "login", "-p", "-h", remoteHost,
            (void *)0, environment);
   } else {
-    execService(width, height, service, peerName, environment, url);
+    // Launch user provied service
+    execService(width, height, service, peerName, realIP, environment, url);
   }
   _exit(1);
 }
@@ -1636,7 +1716,7 @@ static void launcherDaemon(int fd) {
     int len                   = read(fd, &request, sizeof(request));
     if (len != sizeof(request) && errno != EINTR) {
       if (len) {
-        debug("Failed to read launch request");
+        debug("[server] Failed to read launch request!");
       }
       break;
     }
@@ -1646,7 +1726,8 @@ static void launcherDaemon(int fd) {
     int   status;
     pid_t pid;
     while (NOINTR(pid = waitpid(-1, &status, WNOHANG)) > 0) {
-      debug("Child %d exited with exit code %d", pid, WEXITSTATUS(status));
+      debug("[server] Child %d exited with exit code %d.",
+            pid, WEXITSTATUS(status));
       if (WIFEXITED(status) || WIFSIGNALED(status)) {
         char key[32];
         snprintf(&key[0], sizeof(key), "%d", pid);
@@ -1663,10 +1744,11 @@ static void launcherDaemon(int fd) {
       errno = 0;
       NOINTR(pid = waitpid(request.terminate, &status, WNOHANG));
       if (pid == 0 && errno == 0) {
-        if (kill(request.terminate, SIGTERM) == 0) {
-          debug("Terminating child %d (kill)", request.terminate);
+        if (kill(request.terminate, SIGHUP) == 0) {
+          debug("[server] Terminating child %d! [HUP]", request.terminate);
         } else {
-          debug("Terminating child failed [%s]", strerror(errno));
+          debug("[server] Terminating child %d failed! [%s]", request.terminate,
+                strerror(errno));
         }
       }
       continue;
@@ -1677,12 +1759,13 @@ static void launcherDaemon(int fd) {
   readURL:
     len                       = read(fd, url, request.urlLength + 1);
     if (len != request.urlLength + 1 && errno != EINTR) {
-      debug("Failed to read URL");
+      debug("[server] Failed to read URL!");
       free(url);
       break;
     }
     while (NOINTR(pid = waitpid(-1, &status, WNOHANG)) > 0) {
-      debug("Child %d exited with exit code %d", pid, WEXITSTATUS(status));
+      debug("[server] Child %d exited with exit code %d.", pid,
+            WEXITSTATUS(status));
       if (WIFEXITED(status) || WIFSIGNALED(status)) {
         char key[32];
         snprintf(&key[0], sizeof(key), "%d", pid);
@@ -1696,10 +1779,20 @@ static void launcherDaemon(int fd) {
     check(request.service >= 0);
     check(request.service < numServices);
 
-    // Sanitize the host name, so that we do not pass any unexpected characters
-    // to our child process.
+    // Sanitize peer name and real IP, so that we do not pass any unexpected
+    // characters to our child process.
     request.peerName[sizeof(request.peerName)-1] = '\000';
     for (char *s = request.peerName; *s; s++) {
+      if (!((*s >= '0' && *s <= '9') ||
+            (*s >= 'A' && *s <= 'Z') ||
+            (*s >= 'a' && *s <= 'z') ||
+             *s == '.' || *s == '-')) {
+        *s                    = '-';
+      }
+    }
+
+    request.realIP[sizeof(request.realIP)-1] = '\000';
+    for (char *s = request.realIP; *s; s++) {
       if (!((*s >= '0' && *s <= '9') ||
             (*s >= 'A' && *s <= 'Z') ||
             (*s >= 'a' && *s <= 'z') ||
@@ -1713,9 +1806,11 @@ static void launcherDaemon(int fd) {
     struct Utmp *utmp;
     if ((pid                  = forkPty(&pty,
                                         services[request.service]->useLogin,
-                                        &utmp, request.peerName)) == 0) {
+                                        &utmp,
+                                        request.peerName,
+                                        request.realIP)) == 0) {
       childProcess(services[request.service], request.width, request.height,
-                   utmp, request.peerName, url);
+                   utmp, request.peerName, request.realIP, url);
       free(url);
       _exit(1);
     } else {
@@ -1727,7 +1822,7 @@ static void launcherDaemon(int fd) {
           childProcesses      = newHashMap(destroyUtmpHashEntry, NULL);
         }
         addToHashMap(childProcesses, utmp->pid, (char *)utmp);
-        debug("Child %d launched", pid);
+        debug("[server] Child %d launched", pid);
       } else {
         int fds[2];
         if (!pipe(fds)) {
@@ -1781,9 +1876,9 @@ int forkLauncher(void) {
     lowerPrivileges();
     closeAllFds((int []){ pair[1], 2 }, 2);
     launcherDaemon(pair[1]);
-    fatal("exit() failed!");
+    fatal("[server] Launcher exit() failed!");
   case -1:
-    fatal("fork() failed!");
+    fatal("[server] Launcher fork() failed!");
   default:
     NOINTR(close(pair[1]));
     launcher = pair[0];

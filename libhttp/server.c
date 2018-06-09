@@ -48,10 +48,13 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/poll.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -138,6 +141,10 @@ int x_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
 #endif
 
 time_t currentTime;
+char  *unixDomainPath  = NULL;
+int    unixDomainUser  = 0;
+int    unixDomainGroup = 0;
+int    unixDomainChmod = 0;
 
 struct PayLoad {
   int (*handler)(struct HttpConnection *, void *, const char *, int);
@@ -181,7 +188,7 @@ static int serverCollectFullPayload(struct HttpConnection *http,
     free(payload);
   }
   return rc;
-  
+
 }
 
 static int serverCollectHandler(struct HttpConnection *http, void *handler_) {
@@ -282,6 +289,50 @@ void initServer(struct Server *server, int localhostOnly, int portMin,
   server->numConnections        = 0;
 
   int true                      = 1;
+
+  if (unixDomainPath && *unixDomainPath) {
+
+    server->serverFd              = socket(AF_UNIX, SOCK_STREAM, 0);
+    check(server->serverFd >= 0);
+    check(!setsockopt(server->serverFd, SOL_SOCKET, SO_REUSEADDR,
+                      &true, sizeof(true)));
+
+    struct stat st;
+    if (!stat(unixDomainPath, &st) && S_ISSOCK(st.st_mode)) {
+      unlink(unixDomainPath);
+    }
+
+    struct sockaddr_un serverAddr = { 0 };
+    serverAddr.sun_family         = AF_UNIX;
+    memcpy(serverAddr.sun_path, unixDomainPath, sizeof(serverAddr.sun_path));
+    int servlen                   = sizeof(serverAddr.sun_family)
+                                    + strlen(unixDomainPath);
+
+    if (bind(server->serverFd, (struct sockaddr *)&serverAddr, servlen)) {
+      fatal("[server] Failed to bind to unix socket! [%d: %s]",
+            errno, strerror(errno));
+    }
+    if (chown(unixDomainPath, unixDomainUser, unixDomainGroup)) {
+      fatal("[server] Unable to change ownership on unix socket! [%d: %s]",
+            errno, strerror(errno));
+    }
+    if (chmod(unixDomainPath, unixDomainChmod)) {
+      fatal("[server] Unable to change permission on unix socket! [%d: %s]",
+            errno, strerror(errno));
+    }
+
+    check(!listen(server->serverFd, SOMAXCONN));
+    info("[server] Listening on unix domain socket %s...", unixDomainPath);
+    check(server->pollFds         = malloc(sizeof(struct pollfd)));
+    server->pollFds->fd           = server->serverFd;
+    server->pollFds->events       = POLLIN;
+
+    initTrie(&server->handlers, serverDestroyHandlers, NULL);
+    serverRegisterStreamingHttpHandler(server, "/quit", serverQuitHandler, NULL);
+    initSSL(&server->ssl);
+    return;
+  }
+
   server->serverFd              = socket(PF_INET, SOCK_STREAM, 0);
   check(server->serverFd >= 0);
   check(!setsockopt(server->serverFd, SOL_SOCKET, SO_REUSEADDR,
@@ -312,7 +363,7 @@ void initServer(struct Server *server, int localhostOnly, int portMin,
       serverAddr.sin_port       = 0;
     }
     if (!serverAddr.sin_port) {
-      fatal("Failed to find any available port");
+      fatal("[server] Failed to find any available port!");
     }
   }
 
@@ -322,7 +373,7 @@ void initServer(struct Server *server, int localhostOnly, int portMin,
                      &socklen));
   check(socklen == sizeof(serverAddr));
   server->port                  = ntohs(serverAddr.sin_port);
-  info("Listening on port %d", server->port);
+  info("[server] Listening on port %d...", server->port);
 
   check(server->pollFds         = malloc(sizeof(struct pollfd)));
   server->pollFds->fd           = server->serverFd;
@@ -336,8 +387,8 @@ void initServer(struct Server *server, int localhostOnly, int portMin,
 void destroyServer(struct Server *server) {
   if (server) {
     if (server->serverFd >= 0) {
-      info("Shutting down server");
-      close(server->serverFd);
+      info("[server] Shutting down server");
+      NOINTR(close(server->serverFd));
     }
     for (int i = 0; i < server->numConnections; i++) {
       server->connections[i].destroyConnection(server->connections[i].arg);
@@ -346,6 +397,14 @@ void destroyServer(struct Server *server) {
     free(server->pollFds);
     destroyTrie(&server->handlers);
     destroySSL(&server->ssl);
+
+    if (unixDomainPath) {
+      struct stat st;
+      if (*unixDomainPath && !stat(unixDomainPath, &st) && S_ISSOCK(st.st_mode)) {
+        unlink(unixDomainPath);
+      }
+      free(unixDomainPath);
+    }
   }
 }
 
@@ -611,11 +670,12 @@ void serverLoop(struct Server *server) {
   server->looping                         = loopDepth - 1;
 }
 
-void serverEnableSSL(struct Server *server, int flag) {
-  if (flag) {
+void serverSetupSSL(struct Server *server, int enable, int force) {
+  if (enable) {
     check(serverSupportsSSL());
   }
-  sslEnable(&server->ssl, flag);
+  sslEnable(&server->ssl, enable);
+  sslForce(&server->ssl, force);
 }
 
 void serverSetCertificate(struct Server *server, const char *filename,

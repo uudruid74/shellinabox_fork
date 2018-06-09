@@ -199,7 +199,7 @@ In order to be useful as a CGI script, the
 .B shellinaboxd
 binary probably will have to be made
 .BR setuid-root .
-This is currently a discouraged configuration. Use with care. 
+This is currently a discouraged configuration. Use with care.
 .TP
 \fB-d\fP\ |\ \fB--debug\fP
 Enables debugging mode, resulting in lots of log messages on
@@ -282,7 +282,7 @@ Display a brief usage message showing the valid command line parameters.
 .TP
 \fB--linkify\fP=[\fBnone\fP|\fBnormal\fP|\fBaggressive\fP]
 the daemon attempts to recognize URLs in the terminal output and makes them
-clickable. This is not neccessarily a fool-proof process and both false
+clickable. This is not necessarily a fool-proof process and both false
 negatives and false positives are possible. By default, only URLs starting
 with a well known protocol of
 .BR http:// ,\  https:// ,\  ftp:// ,\ or\  mailto:
@@ -292,7 +292,7 @@ mode, anything that looks like a hostname, URL or e-mail address is
 recognized, even if not preceded by a protocol.
 .TP
 \fB--localhost-only\fP
-Normally, 
+Normally,
 .B shellinaboxd
 listens on all available network interfaces. When operating behind a
 reverse-proxy that is not always desirable. This command line option
@@ -449,6 +449,9 @@ number of rows.
 .B ${peer}
 name of remote peer.
 .TP
+.B ${realip}
+value of HTTP header field 'X-Real-IP'.
+.TP
 .B ${uid}
 numeric user id.
 .TP
@@ -458,11 +461,14 @@ the URL that serves the terminal session.
 .B ${user}
 user name.
 .P
-Other than the default environment variables of
+Other than the environment variables of
 .BR $TERM ,
-.B $COLUMNS
+.B $COLUMNS,
+.B $LINES,
+.B $SHELLINABOX_PEERNAME,
+.B $SHELLINABOX_REALIP
 and
-.BR $LINES ,
+.BR $SHELLINABOX_URL,
 services can have environment variables passed to them, by preceding
 the <cmdline> with space separated variable assignments of the form
 .IR KEY = VALUE .
@@ -491,6 +497,11 @@ to saying
 or
 .BR --service=/:SSH ,
 respectively.
+
+Please note that for SSH service to work properly, we need a running ssh server on
+local system with enabled password authentication. If we are using <host> parameter,
+same conditions must be true on that remote system.
+
 .RE
 #ifdef HAVE_OPENSSL
 .TP
@@ -511,7 +522,7 @@ choice can be removed from the context menu. The user can still make this
 choice by directly going to the appropriate URL.
 .TP
 \fB-q\fP\ |\ \fB--quiet\fP
-Surpresses all messages to
+Suppresses all messages to
 .IR stderr .
 This option is mutually exclusive with
 .B --debug
@@ -756,7 +767,7 @@ the daemon with \fBsudo service shellinabox restart\fP.
 .TP
 .I /etc/shellinabox
 This directory contains style sheets that will be used for the
-.B --user-css 
+.B --user-css
 command line option, when running
 .B shellinaboxd
 as a system-wide service.

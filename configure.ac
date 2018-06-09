@@ -1,27 +1,38 @@
 AC_PREREQ(2.57)
 
-dnl This is the one location where the authoritative version number is stored
-AC_INIT(shellinabox, 2.10, markus@shellinabox.com)
-VCS_REVISION=239
+dnl This is one of the locations where the authoritative version
+dnl  number is stored.  The other is in the debian/changelog.
+AC_INIT(shellinabox, 2.20, markus@shellinabox.com)
+if test -e .git; then
+VCS_REVISION=" (revision `cd $srcdir && git log -1 --format=format:%h`)"
+else
+VCS_REVISION=""
+fi
 AC_SUBST(VCS_REVISION)
 AC_DEFINE_UNQUOTED(VCS_REVISION, "${VCS_REVISION}",
                    [Most recent revision number in the version control system])
 
 dnl Set up autoconf/automake for building C libraries and binaries with GCC
 CFLAGS="${CFLAGS:--Os}"
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([subdir-objects])
 AM_CONFIG_HEADER(config.h)
 AC_PROG_CC
+dnl Added this for compatibility with older versions of autoconf/automake
+AM_PROG_CC_C_O
 AC_LANG_WERROR
 AC_PROG_INSTALL
 AC_PROG_LIBTOOL
 AC_SUBST(LIBTOOL_DEPS)
 AC_C_CONST
 AC_PROG_GCC_TRADITIONAL
+AC_CONFIG_MACRO_DIR([m4])
+
+dnl Overwrite default archiver flags.
+AC_SUBST(AR_FLAGS, [cr])
 
 dnl Check for header files that do not exist on all platforms
-AC_CHECK_HEADERS([libutil.h pthread.h pty.h strings.h sys/prctl.h sys/uio.h  \
-                  util.h utmp.h utmpx.h])
+AC_CHECK_HEADERS([libutil.h pthread.h pty.h strings.h syslog.h sys/prctl.h \
+                  sys/uio.h util.h])
 
 dnl Most systems require linking against libutil.so in order to get login_tty()
 AC_CHECK_FUNCS(login_tty, [],
@@ -31,6 +42,9 @@ AC_CHECK_FUNCS(login_tty, [],
 
 dnl Use strlcat() instead of strncat() to avoid spurious warnings
 AC_CHECK_FUNCS([strlcat])
+
+dnl Use vsyslog() for logging important error messages
+AC_CHECK_FUNCS([vsyslog])
 
 dnl Prefer thread-safe functions, if available
 AC_CHECK_FUNCS([getgrgid_r getgrnam_r gethostbyname_r getpwnam_r getpwuid_r  \
@@ -61,15 +75,6 @@ AC_TRY_LINK([#include <math.h>],
             [AC_DEFINE(HAVE_ISNAN, 1,
                        Define to 1 if you have support for isnan)])
 
-dnl Even if utmpx.h exists, not all systems have support for updwtmpx()
-AC_TRY_LINK([#include <utmp.h>],
-            [updwtmp(0, 0);],
-            [AC_DEFINE(HAVE_UPDWTMP, 1,
-                       Define to 1 if you have support for updwtmp)])
-AC_TRY_LINK([#include <utmpx.h>],
-            [updwtmpx(0, 0);],
-            [AC_DEFINE(HAVE_UPDWTMPX, 1,
-                       Define to 1 if you have support for updwtmpx)])
 
 dnl Check if the compiler supports aliasing of symbols
 AC_TRY_LINK([void x(void) { };
@@ -132,6 +137,28 @@ AC_ARG_ENABLE(runtime-loading,
                             and PAM enabled.  If you would rather directly link
                             these libraries into the binary, thus making them a
                             hard dependency, then disable runtime-loading.])
+
+dnl This is feature is not suported in some standard C libs. So users can use
+dnl this switch to avoid compile and runtime problems. Note that utmp must
+dnl disabled on systems with musl libc.
+AC_ARG_ENABLE(utmp,
+              [  --disable-utmp            Disable support for login records. Note
+                                           that for systems with musl libc utmp must
+                                           be disabled.])
+
+if test "x$enable_utmp" != xno; then
+  AC_CHECK_HEADERS([utmp.h utmpx.h])
+
+  dnl Even if utmpx.h exists, not all systems have support for updwtmpx()
+  AC_TRY_LINK([#include <utmp.h>],
+              [updwtmp(0, 0);],
+              [AC_DEFINE(HAVE_UPDWTMP, 1,
+                         Define to 1 if you have support for updwtmp)])
+  AC_TRY_LINK([#include <utmpx.h>],
+              [updwtmpx(0, 0);],
+              [AC_DEFINE(HAVE_UPDWTMPX, 1,
+                         Define to 1 if you have support for updwtmpx)])
+fi
 
 dnl Only test for OpenSSL headers, if not explicitly disabled
 if test "x$enable_ssl" != xno; then
